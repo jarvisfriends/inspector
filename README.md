@@ -1,5 +1,7 @@
 # inspector
 
+![inspector — debug any charm app](assets/banner.svg)
+
 Runtime debug inspector for any [Charm](https://charm.land) Bubble Tea v2
 app — extracted from [tui-base](https://github.com/jarvisfriends/tui-base)
 (ROADMAP X-2 / SP-12), which now consumes it back as the built-in Ctrl+D
