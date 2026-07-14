@@ -26,6 +26,7 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	tint "github.com/lrstanley/bubbletint/v2"
 	"github.com/lucasb-eyer/go-colorful"
 )
@@ -399,7 +400,8 @@ func (p *AccessibilityPanel) View() tea.View {
 		if e.t.Bg != nil {
 			nameStyle = nameStyle.Background(e.t.Bg)
 		}
-		name := darkIcon + " " + nameStyle.Render(fmt.Sprintf("%-28s", e.t.DisplayName))
+		// Pad by terminal cells so non-ASCII theme names keep the badge column.
+		name := darkIcon + " " + nameStyle.Render(lipgloss.PlaceHorizontal(28, lipgloss.Left, e.t.DisplayName))
 		row := name + "  " + badges
 
 		if vi == p.cursor {

@@ -242,6 +242,8 @@ const (
 	settingsRowGotoolLiveHeap                          // 29
 	settingsRowGotoolLiveCPU                           // 30
 	settingsRowServerState                             // 31 — read-only display
+	settingsRowFeatureFlagsHeader                      // 32 — SectionOnly; gate toggles follow, one row per
+	// registered gate (dynamic length — see settingsRows and toggleFeatureFlagRow)
 )
 
 type summaryFlags struct {
@@ -1272,7 +1274,18 @@ func (m *InspectorModel) View() tea.View {
 	}
 
 	c := m.Colors()
-	availW := max(m.Width()-4, 20)
+	// The whole inspector is wrapped in borderStyle below; derive the content
+	// area from its frame so BOTH axes shrink by the border+padding. (Width did
+	// this via the -4 literal; height did not, so the bordered frame rendered
+	// Height()+2 lines and the terminal clipped the bottom border + last row.)
+	borderStyle := c.Styles.OverlayBorder.
+		Border(lipgloss.RoundedBorder()).
+		Background(c.Styles.TextOnBg.GetBackground()).
+		Foreground(c.Styles.TextOnBg.GetForeground()).
+		Padding(0, 1)
+	frameH := borderStyle.GetHorizontalFrameSize()
+	frameV := borderStyle.GetVerticalFrameSize()
+	availW := max(m.Width()-frameH, 20)
 	runtimeRows := m.buildRuntimeRows(c)
 	inputRows := m.buildInputRows(c)
 	m.updateRuntimeColumnWidths(runtimeRows)
@@ -1306,7 +1319,7 @@ func (m *InspectorModel) View() tea.View {
 	m.tabsOriginY = lipgloss.Height(titleLine) + lipgloss.Height(sep)
 	m.tabsHeight = lipgloss.Height(tabsLine)
 	m.sectionOriginY = topH
-	m.sectionHeight = max(1, m.Height()-topH)
+	m.sectionHeight = max(1, m.Height()-topH-frameV)
 	m.logViewport.SetWidth(max(availW, 1))
 	m.logViewport.SetHeight(m.sectionHeight)
 	m.logViewport.SetContent(logContent)
@@ -1348,11 +1361,6 @@ func (m *InspectorModel) View() tea.View {
 		}
 		return nil
 	}
-	borderStyle := c.Styles.OverlayBorder.
-		Border(lipgloss.RoundedBorder()).
-		Background(c.Styles.TextOnBg.GetBackground()).
-		Foreground(c.Styles.TextOnBg.GetForeground()).
-		Padding(0, 1)
 	inner := lipgloss.JoinVertical(
 		lipgloss.Left,
 		titleLine,
@@ -1573,7 +1581,7 @@ func (m *InspectorModel) buildTermSection(c *styles.AppStyle, width int) string 
 		}
 	}
 
-	joined := strings.Join(out, "\n")
+	joined := lipgloss.JoinVertical(lipgloss.Left, out...)
 	return c.Styles.TextOnBg.Width(width).Render(joined)
 }
 
@@ -1637,7 +1645,7 @@ func (m *InspectorModel) renderSettingsSection(c *styles.AppStyle) string {
 		out = append(out, "", c.Styles.Subtitle.Render(m.settingsMessage))
 	}
 
-	return strings.Join(out, "\n")
+	return lipgloss.JoinVertical(lipgloss.Left, out...)
 }
 
 func (m *InspectorModel) settingsRows() []debugSettingRow {
@@ -1650,7 +1658,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 		serverState = m.pprof.ServerURL
 	}
 	secs := strconv.Itoa(max(1, m.pprof.CPUCaptureSecs))
-	return []debugSettingRow{
+	rows := []debugSettingRow{
 		// 0-6: general display settings
 		{
 			Field: "Latest-value refresh",
@@ -1837,6 +1845,32 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 		// 30: info
 		{Field: "Server", Value: serverState},
 	}
+	// 32+: developer feature flags (dynamic — one row per registered gate).
+	// This is the Inspector's own copy of the flag toggles; it is
+	// intentionally not exposed on the app's main Settings page since these
+	// are unfinished capabilities meant for developers, not end users.
+	if m.gates != nil {
+		defs := m.gates.Defs()
+		if len(defs) == 0 {
+			return rows
+		}
+		rows = append(rows, debugSettingRow{
+			Field:       "── Feature Flags (developer) ──",
+			SectionOnly: true,
+		})
+		for _, def := range defs {
+			state := "Disabled"
+			if m.gates.Value(def.Name) {
+				state = "Enabled"
+			}
+			rows = append(rows, debugSettingRow{
+				Field: def.Name,
+				Value: state,
+				Help:  "Enter toggles this flag at runtime (developer-only; not persisted). " + def.Description,
+			})
+		}
+	}
+	return rows
 }
 
 func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
@@ -2003,11 +2037,39 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 	case settingsRowOutputDir,
 		settingsRowBuiltinHeader,
 		settingsRowGotoolHeader,
-		settingsRowServerState:
+		settingsRowServerState,
+		settingsRowFeatureFlagsHeader:
 		// read-only display rows and section headers — no interactive action
+	default:
+		// Rows past the fixed set are the dynamic Feature Flags toggles (one
+		// per registered gate) appended by settingsRows.
+		return m.toggleFeatureFlagRow(m.settingsCursor)
 	}
 	m.dirty = true
 	return nil
+}
+
+// GatesChangedMsg is emitted when the user flips a feature gate from the
+// Inspector's own Settings tab. The Inspector already re-derives its own
+// gate-dependent state before this fires (see OnGatesChanged); the message
+// exists so the host app's router can re-broadcast the documented
+// settings.GatesChangedMsg contract for any of its own pages that react to
+// gate flips structurally, regardless of where the toggle happened.
+type GatesChangedMsg struct {
+	Values map[string]bool
+}
+
+// toggleFeatureFlagRow flips the gate backing a dynamic Feature Flags row —
+// settingsRows appends one such row per registered gate right after
+// settingsRowFeatureFlagsHeader, so the row's gate is found at that offset.
+func (m *InspectorModel) toggleFeatureFlagRow(cursor int) tea.Cmd {
+	idx := cursor - (int(settingsRowFeatureFlagsHeader) + 1)
+	def := m.gates.Defs()[idx]
+	m.gates.Set(def.Name, !m.gates.Value(def.Name))
+	m.OnGatesChanged()
+	m.dirty = true
+	values := m.gates.Snapshot()
+	return func() tea.Msg { return GatesChangedMsg{Values: values} }
 }
 
 func (m *InspectorModel) startPprofServerCmd() tea.Cmd {

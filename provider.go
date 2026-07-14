@@ -1,8 +1,9 @@
 package inspector
 
 import (
-	"strings"
 	"time"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/jarvisfriends/snap/styles"
 )
@@ -157,7 +158,7 @@ func (m *InspectorModel) renderProviderSection(p MetricsProvider, c *styles.AppS
 		m.providerRefreshed = make(map[string]time.Time)
 	}
 	m.providerRefreshed[p.TabName()] = time.Now()
-	return strings.Join(p.BuildRows(c), "\n")
+	return lipgloss.JoinVertical(lipgloss.Left, p.BuildRows(c)...)
 }
 
 // tickProviderRefresh marks the view dirty when the active provider tab's
