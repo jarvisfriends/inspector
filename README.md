@@ -31,6 +31,13 @@ go run ./cmd/inspector
 Fills the terminal with the inspector itself: tab/←/→ or digits switch tabs,
 `i`/`w`/`e` fire test notifications, `q` quits.
 
+## Demo
+
+The tape in `cmd/inspector/demo.tape` cycles through all inspector tab
+groups and keyboard tab switching.
+
+![inspector demo](cmd/inspector/demo.gif)
+
 ## Development
 
 `gofmt`, `go vet`, `golangci-lint run`, `go test -race ./...` — same bar as
