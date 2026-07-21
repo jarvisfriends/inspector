@@ -184,8 +184,7 @@ type acEntry struct {
 
 // ApplyThemeMsg asks the host application to apply the tint with the given
 // ID app-wide. The inspector is host-agnostic: it emits this message and the
-// embedding app translates it into its own theme plumbing (tui-base's router
-// maps it onto settings.ThemeMsg).
+// embedding app translates it into its own theme plumbing.
 type ApplyThemeMsg struct{ ID string }
 
 // AccessibilityKeyMap defines the key bindings for the accessibility panel.

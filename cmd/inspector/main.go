@@ -1,9 +1,7 @@
-// Command inspector runs the debug inspector standalone — the "debug any
-// charm based app" demo from tui-base ROADMAP SP-12. Inside a real app the
-// inspector rides along as an overlay (tui-base wires it to Ctrl+D); here it
-// fills the terminal so every tab can be explored on its own: message log,
-// runtime stats, terminal diagnostics, accessibility, and the i/w/e test
-// notification keys.
+// Command inspector runs the debug inspector standalone. Inside a host app the
+// inspector usually rides as an overlay; here it fills the terminal so every
+// tab can be explored on its own: message log, runtime stats, terminal
+// diagnostics, accessibility, and the i/w/e test notification keys.
 package main
 
 import (

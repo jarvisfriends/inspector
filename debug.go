@@ -143,9 +143,9 @@ func DefaultDebugKeys() DebugKeyMap {
 		),
 		TabSwitch: key.NewBinding(
 			key.WithKeys("tab", "shift+tab", "left", "right", "1", "2", "3", "4", "5", "6", "7"),
-			key.WithHelp("tab/←/→ 1-7", "switch tab"),
+			key.WithHelp("tab ←→ 1-7", "switch tab"),
 		),
-		Scroll:   key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "scroll")),
+		Scroll:   key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑↓", "move")),
 		EnterRun: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "change/run")),
 	}
 }

@@ -3,9 +3,7 @@
 ![inspector — debug any charm app](assets/banner.svg)
 
 Runtime debug inspector for any [Charm](https://charm.land) Bubble Tea v2
-app — extracted from [tui-base](https://github.com/jarvisfriends/tui-base)
-(ROADMAP X-2 / SP-12), which now consumes it back as the built-in Ctrl+D
-overlay.
+app.
 
 Tabs: live message log with deduplication, runtime log streaming, Go runtime
 stats (GC, goroutines, memory), terminal diagnostics, link-rate metrics via
@@ -36,4 +34,4 @@ Fills the terminal with the inspector itself: tab/←/→ or digits switch tabs,
 ## Development
 
 `gofmt`, `go vet`, `golangci-lint run`, `go test -race ./...` — same bar as
-the sibling repos (snap, tui-base).
+the sibling repos.

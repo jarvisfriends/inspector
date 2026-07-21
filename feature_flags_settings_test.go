@@ -52,8 +52,8 @@ func TestFeatureFlagsRowReflectsGateValue(t *testing.T) {
 // TestFeatureFlagsRowTogglesAndBroadcasts asserts pressing Enter on a Feature
 // Flags row flips the gate in the shared registry, re-derives the
 // Inspector's own gate-dependent state (OnGatesChanged), and returns a cmd
-// producing GatesChangedMsg so tui-base's router can re-broadcast the
-// app-facing settings.GatesChangedMsg contract.
+// producing GatesChangedMsg so a host can re-broadcast the app-facing
+// settings.GatesChangedMsg contract.
 func TestFeatureFlagsRowTogglesAndBroadcasts(t *testing.T) {
 	t.Parallel()
 

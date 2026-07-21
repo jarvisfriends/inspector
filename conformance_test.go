@@ -7,7 +7,7 @@ import (
 )
 
 // TestCodeStandards runs snap's AST code-standard checks over the whole
-// module — the same gate snap and tui-base run on their own trees.
+// module.
 func TestCodeStandards(t *testing.T) {
 	rendercheck.CheckCodeStandards(t, "github.com/jarvisfriends/inspector/...")
 	rendercheck.CheckDescriptiveStructNames(t, "github.com/jarvisfriends/inspector/...")
