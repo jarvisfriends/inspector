@@ -48,8 +48,8 @@ github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkp
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
-github.com/jarvisfriends/snap v0.1.14 h1:mWhZqeZZD8QXii3xBwRwp4MTgCSXhy9J7jUSp+JFX7M=
-github.com/jarvisfriends/snap v0.1.14/go.mod h1:W3IKyqu7HDLYEGiO4MRYEZpZL+8ryDFzp0dGZrNQxLA=
+github.com/jarvisfriends/snap v0.2.2 h1:AZEDRz3jw4chf0zJ2nuoBbburDJRfnEFbc2xudifxSw=
+github.com/jarvisfriends/snap v0.2.2/go.mod h1:W3IKyqu7HDLYEGiO4MRYEZpZL+8ryDFzp0dGZrNQxLA=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/lrstanley/bubbletint/v2 v2.0.2 h1:JvLHMf7qI/UE47AyNsD9jVI7h2VQvq+4AYcHNe8DwSQ=
