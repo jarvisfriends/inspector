@@ -28,7 +28,7 @@ func TestLogCapturesMessage(t *testing.T) {
 		t.Fatalf("expected empty logs initially; got %d entries", len(m.Logs))
 	}
 
-	// Send a navigation.SelectedMsg and ensure it gets logged
+	// Send a navigation.SelectedMsg and verify it gets logged
 	_, _ = m.Update(navigation.SelectedMsg{PageIndex: 1})
 	if len(m.Logs) == 0 {
 		t.Fatalf("expected logs after update")

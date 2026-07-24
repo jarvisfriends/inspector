@@ -143,9 +143,9 @@ func DefaultDebugKeys() DebugKeyMap {
 		),
 		TabSwitch: key.NewBinding(
 			key.WithKeys("tab", "shift+tab", "left", "right", "1", "2", "3", "4", "5", "6", "7"),
-			key.WithHelp("tab/←/→ 1-7", "switch tab"),
+			key.WithHelp("tab ←→ 1-7", "switch tab"),
 		),
-		Scroll:   key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑/↓", "scroll")),
+		Scroll:   key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑↓", "move")),
 		EnterRun: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "change/run")),
 	}
 }
@@ -210,39 +210,39 @@ const debugBorderPaddingX = 1
 type settingsRowIndex int
 
 const (
-	settingsRowLatestRefresh   settingsRowIndex = iota // 0
-	settingsRowStatsRefresh                            // 1
-	settingsRowStatusSummary                           // 2
-	settingsRowShowTerm                                // 3
-	settingsRowShowHeap                                // 4
-	settingsRowShowGC                                  // 5
-	settingsRowShowGoroutines                          // 6
-	settingsRowShowLink                                // 7
-	settingsRowPprofEnabled                            // 8
-	settingsRowPprofAddr                               // 9
-	settingsRowPprofToolAddr                           // 10
-	settingsRowPprofViewMode                           // 11
-	settingsRowCPUSecs                                 // 12
-	settingsRowOutputDir                               // 13 — read-only display
-	settingsRowWriteHeap                               // 14
-	settingsRowCaptureCPU                              // 15
-	settingsRowBuiltinHeader                           // 16 — SectionOnly
-	settingsRowPprofIndex                              // 17
-	settingsRowHeapDebug1                              // 18
-	settingsRowHeapDebug2                              // 19
-	settingsRowGoroutineDebug1                         // 20
-	settingsRowGoroutineDebug2                         // 21
-	settingsRowAllocsDebug1                            // 22
-	settingsRowBlockDebug1                             // 23
-	settingsRowMutexDebug1                             // 24
-	settingsRowCPUStream                               // 25
-	settingsRowTraceStream                             // 26
-	settingsRowGotoolHeader                            // 27 — SectionOnly
-	settingsRowGotoolLatest                            // 28
-	settingsRowGotoolLiveHeap                          // 29
-	settingsRowGotoolLiveCPU                           // 30
-	settingsRowServerState                             // 31 — read-only display
-	settingsRowFeatureFlagsHeader                      // 32 — SectionOnly; gate toggles follow, one row per
+	settingsRowLatestRefresh      settingsRowIndex = iota // 0
+	settingsRowStatsRefresh                               // 1
+	settingsRowStatusSummary                              // 2
+	settingsRowShowTerm                                   // 3
+	settingsRowShowHeap                                   // 4
+	settingsRowShowGC                                     // 5
+	settingsRowShowGoroutines                             // 6
+	settingsRowShowLink                                   // 7
+	settingsRowPprofEnabled                               // 8
+	settingsRowPprofAddr                                  // 9
+	settingsRowPprofToolAddr                              // 10
+	settingsRowPprofViewMode                              // 11
+	settingsRowCPUSecs                                    // 12
+	settingsRowOutputDir                                  // 13 — read-only display
+	settingsRowWriteHeap                                  // 14
+	settingsRowCaptureCPU                                 // 15
+	settingsRowBuiltinHeader                              // 16 — SectionOnly
+	settingsRowPprofIndex                                 // 17
+	settingsRowHeapDebug1                                 // 18
+	settingsRowHeapDebug2                                 // 19
+	settingsRowGoroutineDebug1                            // 20
+	settingsRowGoroutineDebug2                            // 21
+	settingsRowAllocsDebug1                               // 22
+	settingsRowBlockDebug1                                // 23
+	settingsRowMutexDebug1                                // 24
+	settingsRowCPUStream                                  // 25
+	settingsRowTraceStream                                // 26
+	settingsRowGotoolHeader                               // 27 — SectionOnly
+	settingsRowGotoolLatest                               // 28
+	settingsRowGotoolLiveHeap                             // 29
+	settingsRowGotoolLiveCPU                              // 30
+	settingsRowServerState                                // 31 — read-only display
+	settingsRowFeatureFlagsHeader                         // 32 — SectionOnly; gate toggles follow, one row per
 	// registered gate (dynamic length — see settingsRows and toggleFeatureFlagRow)
 )
 
@@ -559,7 +559,7 @@ func (m *InspectorModel) switchTab(tab debugTab) {
 	}
 	m.saveActiveTabScroll()
 	m.activeTab = tab
-	// Ensure Accessibility panel visibility follows the active tab.
+	// Verify Accessibility panel visibility follows the active tab.
 	if m.acPanel != nil {
 		m.syncAcPanelVisibility()
 	}

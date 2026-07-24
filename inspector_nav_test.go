@@ -68,7 +68,7 @@ func TestSetNavKeysRebindsTabSwitching(t *testing.T) {
 	}
 }
 
-// TestTabKeysEscapeAccessibilityTab ensures the nav keys switch tabs even
+// TestTabKeysEscapeAccessibilityTab verifies the nav keys switch tabs even
 // while the accessibility panel (which claims most keys) is active. The tab is
 // feature-gated (hidden by default), so the gate is enabled first.
 func TestTabKeysEscapeAccessibilityTab(t *testing.T) {

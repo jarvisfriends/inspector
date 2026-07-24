@@ -2,10 +2,12 @@
 
 ![inspector — debug any charm app](assets/banner.svg)
 
+[![CI](https://github.com/jarvisfriends/inspector/actions/workflows/ci.yml/badge.svg)](https://github.com/jarvisfriends/inspector/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jarvisfriends/inspector/badge)](https://scorecard.dev/viewer/?uri=github.com/jarvisfriends/inspector)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jarvisfriends/inspector.svg)](https://pkg.go.dev/github.com/jarvisfriends/inspector)
+
 Runtime debug inspector for any [Charm](https://charm.land) Bubble Tea v2
-app — extracted from [tui-base](https://github.com/jarvisfriends/tui-base)
-(ROADMAP X-2 / SP-12), which now consumes it back as the built-in Ctrl+D
-overlay.
+app.
 
 Tabs: live message log with deduplication, runtime log streaming, Go runtime
 stats (GC, goroutines, memory), terminal diagnostics, link-rate metrics via
@@ -33,7 +35,14 @@ go run ./cmd/inspector
 Fills the terminal with the inspector itself: tab/←/→ or digits switch tabs,
 `i`/`w`/`e` fire test notifications, `q` quits.
 
+## Demo
+
+The tape in `cmd/inspector/demo.tape` cycles through all inspector tab
+groups and keyboard tab switching.
+
+![inspector demo](cmd/inspector/demo.gif)
+
 ## Development
 
 `gofmt`, `go vet`, `golangci-lint run`, `go test -race ./...` — same bar as
-the sibling repos (snap, tui-base).
+the sibling repos.
