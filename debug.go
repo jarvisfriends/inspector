@@ -445,10 +445,14 @@ func (m *InspectorModel) FullHelp() [][]key.Binding {
 // surface the correct env-var name in its terminal diagnostics section.
 func (m *InspectorModel) SetColorProfileEnvVar(name string) {
 	if name == "" {
-		name = "TUI_BASE_COLOR_PROFILE"
+		name = defaultColorProfileEnvVar
 	}
 	m.colorProfileEnvVar = name
 }
+
+// defaultColorProfileEnvVar is the color-profile override env-var name assumed
+// when the embedding app does not set one via SetColorProfileEnvVar.
+const defaultColorProfileEnvVar = "TUI_BASE_COLOR_PROFILE"
 
 // SetColors stores a shared AppColors pointer so the router can update the
 // theme in one place and this model sees the change immediately.
@@ -1447,7 +1451,7 @@ func (m *InspectorModel) buildTermSection(c *styles.AppStyle, width int) string 
 	// (router imports this debug package).
 	envName := m.colorProfileEnvVar
 	if envName == "" {
-		envName = "TUI_BASE_COLOR_PROFILE"
+		envName = defaultColorProfileEnvVar
 	}
 	profileOverride := strings.TrimSpace(os.Getenv(envName))
 	if profileOverride != "" {
