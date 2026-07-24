@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a new debug surface, provider hook, or host integration point
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to observe or debug?
+      description: Describe the host or debugging problem you want the inspector to solve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape (optional)
+      description: API sketch, tab idea, prior art, or host-side wiring expectation.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I checked existing issues and README guidance first
+          required: true

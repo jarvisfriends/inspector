@@ -1,0 +1,39 @@
+name: Bug report
+description: Something renders wrong, routes wrong, or crashes
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Steps, or a minimal host model if the bug needs one.
+      placeholder: |
+        1. Run ...
+        2. Press ...
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal + size
+      description: e.g. Windows Terminal 90x40, iTerm2 120x40, over SSH?
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: inspector version / commit and Go version
+    validations:
+      required: true
+  - type: textarea
+    id: host
+    attributes:
+      label: Host integration details (optional)
+      description: Theme wiring, extra providers, or overlay hosting details that matter for the bug.
