@@ -1,0 +1,8 @@
+# Links lychee should not verify.
+#
+# cmd/inspector/demo.gif is a generated asset rendered from
+# cmd/inspector/demo.tape on a machine with the vhs/Docker toolchain. The
+# README references it so it renders on GitHub once committed; until then the
+# link check must not fail on the not-yet-rendered file. Remove this line once
+# the gif is rendered and committed.
+cmd/inspector/demo.gif
