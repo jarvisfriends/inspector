@@ -2,6 +2,11 @@
 
 ![inspector — debug any charm app](assets/banner.svg)
 
+[![CI](https://github.com/jarvisfriends/inspector/actions/workflows/ci.yml/badge.svg)](https://github.com/jarvisfriends/inspector/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/jarvisfriends/inspector/actions/workflows/codeql.yml/badge.svg)](https://github.com/jarvisfriends/inspector/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jarvisfriends/inspector/badge)](https://scorecard.dev/viewer/?uri=github.com/jarvisfriends/inspector)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jarvisfriends/inspector.svg)](https://pkg.go.dev/github.com/jarvisfriends/inspector)
+
 Runtime debug inspector for any [Charm](https://charm.land) Bubble Tea v2
 app.
 

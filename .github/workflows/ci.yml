@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+      - name: Cache Go modules
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Build
+        run: go build ./...
+      - name: Test (race)
+        run: go test -race ./... -v
+      - name: Vet
+        run: go vet ./...
+      - name: gofmt check
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "gofmt drift detected:"
+            echo "$files"
+            exit 1
+          fi
+      - name: go mod tidy check
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          go mod tidy
+          go -C tools/releasetag mod tidy
+          if ! git diff --exit-code -- go.mod go.sum tools/releasetag/go.mod tools/releasetag/go.sum; then
+            echo "go mod tidy would change files — run 'go mod tidy' (root and tools/releasetag) and commit the result"
+            exit 1
+          fi
+      - name: go mod verify
+        if: matrix.os == 'ubuntu-24.04'
+        run: go mod verify
+
+  dependency-review:
+    name: Dependency Review (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dependency review
+        uses: actions/dependency-review-action@v5
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+      - name: Run govulncheck
+        run: govulncheck ./...

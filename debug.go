@@ -559,7 +559,7 @@ func (m *InspectorModel) switchTab(tab debugTab) {
 	}
 	m.saveActiveTabScroll()
 	m.activeTab = tab
-	// Ensure Accessibility panel visibility follows the active tab.
+	// Verify Accessibility panel visibility follows the active tab.
 	if m.acPanel != nil {
 		m.syncAcPanelVisibility()
 	}

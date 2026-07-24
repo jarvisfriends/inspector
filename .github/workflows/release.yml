@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Run CI before release
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: goreleaser
+    needs: [ci]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+      - name: Build demo binary and render tape
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o cmd/inspector/demo-bin ./cmd/inspector
+          docker run --rm -v "$PWD:/vhs" -w /vhs ghcr.io/charmbracelet/vhs cmd/inspector/demo.tape
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.16.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
