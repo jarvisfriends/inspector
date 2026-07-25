@@ -19,7 +19,11 @@ for changes.
    bash tools/local_verify.sh
    ```
 
-4. Open a PR against `main`. CI must pass on Linux, Windows, and macOS.
+4. Sign off every commit (Developer Certificate of Origin —
+   <https://developercertificate.org/>): `git commit --signoff`, or
+   `git rebase --signoff main` to sign off a whole branch. CI checks this on
+   every PR.
+5. Open a PR against `main`. CI must pass on Linux, Windows, and macOS.
 
 ## Code conventions
 
