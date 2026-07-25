@@ -207,12 +207,11 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: jarvisfriends/inspector
           files: ./coverage.out
-      - name: Upload coverage to Coveralls (goveralls)
-        # Non-fatal: no-op until the repo is connected on coveralls.io. Uses the
-        # workflow GITHUB_TOKEN via Coveralls' GitHub integration on public repos.
+      - name: Upload coverage to Coveralls
+        # Non-fatal: no-op until the repo is connected on coveralls.io. Pinned by
+        # commit SHA (Sonar S8545: no unpinned "go install"); uses goveralls via
+        # the workflow GITHUB_TOKEN on public repos.
         continue-on-error: true
-        env:
-          COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          go install github.com/mattn/goveralls@v0.0.12
-          goveralls -coverprofile=coverage.out -service=github
+        uses: shogo82148/actions-goveralls@9606dbc5ac5cf888a0e9ef901515c3cd516a2790 # v1.11.0
+        with:
+          path-to-profile: coverage.out
