@@ -8,7 +8,7 @@ and corrections are welcome via an issue or PR.
 
 - **Test coverage → 90%** across the package, favouring behaviour-level tests
   over brittle snapshot assertions.
-- **Signed, reproducible releases** — goreleaser + cosign (Sigstore bundle
+- **Signed, reproducible releases** — GoReleaser + cosign (Sigstore bundle
   format) producing checksummed, signed artifacts on every tag.
 - **OpenSSF Best Practices** passing badge, then silver.
 
