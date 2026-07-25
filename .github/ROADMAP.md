@@ -34,4 +34,4 @@ and corrections are welcome via an issue or PR.
 - Coupling to any single host application; it must remain embeddable in any
   Bubble Tea v2 program.
 
-See also [CONTRIBUTING.md](../CONTRIBUTING.md) and the [CHANGELOG](../CHANGELOG.md).
+See also [CONTRIBUTING.md](../CONTRIBUTING.md) and the [CHANGELOG.md](../CHANGELOG.md).
