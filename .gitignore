@@ -48,3 +48,5 @@ dist/
 *.prof
 *.pprof
 # END copilot-team-baseline
+
+tools/releasetag/releasetag

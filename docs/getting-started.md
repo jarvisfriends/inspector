@@ -31,13 +31,19 @@ Inspector is host-agnostic:
 
 ## Try it without writing code
 
+`go run` fetches and runs it directly, no clone required:
+
 ```bash
-go run ./cmd/inspector
+go run github.com/jarvisfriends/inspector/cmd/inspector@latest
 ```
 
-Fills the terminal with the inspector itself — no host app required. Or
-download a prebuilt, signed binary for your OS from the
-[Releases page](https://github.com/jarvisfriends/inspector/releases).
+Pin a specific release instead of `@latest` by using its tag, e.g. `@v0.0.5`.
+If you already have the repo cloned locally, drop the module path and
+version instead: `go run ./cmd/inspector`.
+
+Either way it fills the terminal with the inspector itself — no host app
+required. You can also download a prebuilt, signed binary for your OS from
+the [Releases page](https://github.com/jarvisfriends/inspector/releases).
 
 ## What's inside
 
