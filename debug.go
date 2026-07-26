@@ -2117,7 +2117,7 @@ func (m *InspectorModel) stopPprofServerCmd() tea.Cmd {
 func (m *InspectorModel) writeProfileSnapshotCmd() tea.Cmd {
 	outDir := m.pprof.OutputDir
 	return func() tea.Msg {
-		if err := os.MkdirAll(outDir, 0o600); err != nil {
+		if err := os.MkdirAll(outDir, 0o700); err != nil {
 			return pprofActionMsg{Kind: pprofKindSnapshot, Err: err}
 		}
 		ts := time.Now().Format("20060102-150405")
