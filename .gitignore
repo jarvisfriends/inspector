@@ -48,3 +48,6 @@ dist/
 *.prof
 *.pprof
 # END copilot-team-baseline
+
+cmd/inspector/demo-bin
+tools/releasetag/releasetag

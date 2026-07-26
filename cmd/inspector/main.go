@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Jarvis Friends contributors
+// SPDX-License-Identifier: MIT
+
 // Command inspector runs the debug inspector standalone. Inside a host app the
 // inspector usually rides as an overlay; here it fills the terminal so every
 // tab can be explored on its own: message log, runtime stats, terminal

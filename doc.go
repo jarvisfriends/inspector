@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Jarvis Friends contributors
+// SPDX-License-Identifier: MIT
+
 // Package inspector is the built-in runtime observability overlay (Ctrl+D):
 // tabbed views for Go runtime stats, input telemetry, disks, terminal/theme
 // diagnostics, accessibility (CVD) checks, an intercepted-message log, and

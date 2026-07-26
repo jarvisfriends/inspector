@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Jarvis Friends contributors
+// SPDX-License-Identifier: MIT
+
 package inspector
 
 // accessibility.go — filterable color-accessibility theme browser panel.

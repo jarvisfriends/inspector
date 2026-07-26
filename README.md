@@ -4,7 +4,6 @@
 
 [![CI](https://github.com/jarvisfriends/inspector/actions/workflows/ci.yml/badge.svg)](https://github.com/jarvisfriends/inspector/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13785/badge)](https://www.bestpractices.dev/projects/13785)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jarvisfriends/inspector/badge)](https://scorecard.dev/viewer/?uri=github.com/jarvisfriends/inspector)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jarvisfriends/inspector.svg)](https://pkg.go.dev/github.com/jarvisfriends/inspector)
 
 Runtime debug inspector for any [Charm](https://charm.land) Bubble Tea v2
@@ -47,3 +46,9 @@ groups and keyboard tab switching.
 
 `gofmt`, `go vet`, `golangci-lint run`, `go test -race ./...` — same bar as
 the sibling repos.
+
+## Verifying releases
+
+Release archives are checksummed, ship SPDX SBOMs, and `checksums.txt` is signed with keyless cosign by the
+release workflow. See [docs/release-verification.md](docs/release-verification.md) for the two-command
+verification.

@@ -33,3 +33,18 @@ for changes.
    the standalone demo and in embedded hosts.
 - Prefer extending existing provider and tab surfaces over adding parallel
    integration mechanisms.
+
+## Testing policy
+
+Tests are required, not optional:
+
+- Every change that adds or modifies functionality must include tests exercising the new behavior.
+- Every bug fix must include a regression test that fails without the fix.
+- CI enforces a **90% statement-coverage gate** on the library packages (examples, `cmd/`, and tools are
+  demo/wiring code and excluded); PRs that drop below it fail.
+
+## Project policies
+
+Roles, code review rules, and the access policy live in [GOVERNANCE.md](GOVERNANCE.md); security reporting
+and vulnerability handling in [SECURITY.md](SECURITY.md); dependency rules in
+[docs/dependency-policy.md](docs/dependency-policy.md).
