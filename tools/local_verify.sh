@@ -19,7 +19,8 @@ export GOWORK=off
 
 if ! command -v gofumpt >/dev/null 2>&1; then
   echo "ERROR: gofumpt not found. Install with:"
-  echo "  go install mvdan.cc/gofumpt@latest"
+  # renovate: datasource=go depName=mvdan.cc/gofumpt
+  echo "  go install mvdan.cc/gofumpt@v0.11.0"
   exit 1
 fi
 mapfile -t GO_FILES < <(git ls-files '*.go')
@@ -35,7 +36,8 @@ fi
 echo "==> golangci-lint"
 if ! command -v golangci-lint >/dev/null 2>&1; then
   echo "ERROR: golangci-lint not found. Install with:"
-  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+  # renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
+  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
   exit 1
 fi
 golangci-lint run ./...
@@ -77,7 +79,8 @@ if [[ "$MODE" == "full" ]]; then
   echo "==> actionlint"
   if ! command -v actionlint >/dev/null 2>&1; then
     echo "ERROR: actionlint not found. Install with:"
-    echo "  go install github.com/rhysd/actionlint/cmd/actionlint@latest"
+    # renovate: datasource=go depName=github.com/rhysd/actionlint
+    echo "  go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12"
     exit 1
   fi
   actionlint
