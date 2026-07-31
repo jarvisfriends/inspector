@@ -15,16 +15,12 @@
 *.trace
 .history
 
-dist/
-
 coverage
 coverage.txt
 coverage.html
 go.work
 go.work.sum
 
-# BEGIN copilot-team-baseline
-# Shared local-only artifacts (safe to ignore in OSS repos)
 .DS_Store
 Thumbs.db
 *.swp
@@ -40,6 +36,7 @@ coverage.out
 *.log
 tmp/
 .cache/
+/vendor
 
 # Go local build/test artifacts
 bin/
@@ -47,6 +44,4 @@ dist/
 *.test
 *.prof
 *.pprof
-# END copilot-team-baseline
-
 tools/releasetag/releasetag
