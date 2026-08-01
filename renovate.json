@@ -8,7 +8,7 @@
     {
       "customType": "regex",
       "description": "go install <pkg>@<version> lines annotated with a renovate comment",
-      "managerFilePatterns": ["/\\.sh$/", "/^\\.github/workflows/[^/]+\\.ya?ml$/", "/^\\.devcontainer/[^/]+\\.sh$/"],
+      "fileMatch": ["/\\.sh$/", "/^\\.github/workflows/[^/]+\\.ya?ml$/", "/^\\.devcontainer/[^/]+\\.sh$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\n[^\\n]*@(?<currentValue>v[0-9][^\\s\"']*)"
       ]
