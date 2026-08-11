@@ -1,12 +1,9 @@
 # Links lychee should not verify.
 #
-# The demo gif is a build artifact, rendered from cmd/inspector/demo.tape at
-# release time and attached to the release by goreleaser (release.extra_files).
-# It is never committed, so the README links it as a release asset at a fixed
-# releases/latest/download/demo.gif URL.
+# (none currently)
 #
-# That URL 404s until a release actually carries the asset. Every release from
-# v0.0.10 onward failed on a dirty tree, so no release has one yet. Once a
-# release succeeds this line can go, and a broken demo link becomes a real
-# failure again.
-https://github\.com/jarvisfriends/inspector/releases/latest/download/demo\.gif$
+# The demo gif used to be listed here: it is a build artifact attached to the
+# release by goreleaser, so the README links it as
+# releases/latest/download/demo.gif, which 404'd while every release was
+# failing on a dirty tree. v0.0.13 is the first release to carry the asset, so
+# the link resolves and a broken gallery link is a real failure again.
