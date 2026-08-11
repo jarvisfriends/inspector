@@ -45,3 +45,12 @@ dist/
 *.prof
 *.pprof
 tools/releasetag/releasetag
+
+# Release-time demo artifacts. cmd/inspector/demo.tape renders the gif and the
+# workflow cross-compiles a throwaway binary to record it; both are produced
+# before goreleaser runs. Untracked, they put the tree in a dirty state and
+# goreleaser aborts ("git is in a dirty state") — which is why every release
+# from v0.0.10 onward failed and the repo has tags but no releases. The gif
+# still reaches users: .goreleaser.yml attaches it via release.extra_files.
+cmd/inspector/demo-bin
+cmd/inspector/demo.gif

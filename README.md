@@ -41,7 +41,7 @@ Fills the terminal with the inspector itself: tab/←/→ or digits switch tabs,
 The tape in `cmd/inspector/demo.tape` cycles through all inspector tab
 groups and keyboard tab switching.
 
-![inspector demo](cmd/inspector/demo.gif)
+![inspector demo](https://github.com/jarvisfriends/inspector/releases/latest/download/demo.gif)
 
 ## Development
 
