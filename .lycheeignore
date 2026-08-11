@@ -1,8 +1,12 @@
 # Links lychee should not verify.
 #
-# cmd/inspector/demo.gif is a generated asset rendered from
-# cmd/inspector/demo.tape on a machine with the vhs/Docker toolchain. The
-# README references it so it renders on GitHub once committed; until then the
-# link check must not fail on the not-yet-rendered file. Remove this line once
-# the gif is rendered and committed.
-cmd/inspector/demo.gif
+# The demo gif is a build artifact, rendered from cmd/inspector/demo.tape at
+# release time and attached to the release by goreleaser (release.extra_files).
+# It is never committed, so the README links it as a release asset at a fixed
+# releases/latest/download/demo.gif URL.
+#
+# That URL 404s until a release actually carries the asset. Every release from
+# v0.0.10 onward failed on a dirty tree, so no release has one yet. Once a
+# release succeeds this line can go, and a broken demo link becomes a real
+# failure again.
+https://github\.com/jarvisfriends/inspector/releases/latest/download/demo\.gif$
