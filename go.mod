@@ -7,7 +7,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/charmbracelet/colorprofile v0.4.3
-	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/dustin/go-humanize v1.0.1
 	github.com/jarvisfriends/snap v0.2.18
 	github.com/lrstanley/bubbletint/v2 v2.0.2
