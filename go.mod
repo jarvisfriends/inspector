@@ -13,7 +13,7 @@ require (
 	github.com/lrstanley/bubbletint/v2 v2.0.2
 	github.com/lucasb-eyer/go-colorful v1.4.1
 	golang.org/x/sys v0.47.0
-	golang.org/x/text v0.40.0
+	golang.org/x/text v0.41.0
 )
 
 require (
