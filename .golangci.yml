@@ -140,7 +140,10 @@ formatters:
   settings:
     gofumpt:
       module-path: github.com/jarvisfriends/inspector
-      extra-rules: true
+      # gofumpt 0.11 split extra-rules into granular options; group-params is
+      # the parameter-grouping rewrite the old flag was used for here.
+      extra:
+        group-params: true
 
 issues:
   # Show every finding rather than capping per-linter/per-message.
