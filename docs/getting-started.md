@@ -34,12 +34,12 @@ Inspector is host-agnostic:
 `go run` fetches and runs it directly, no clone required:
 
 ```bash
-go run github.com/jarvisfriends/inspector/cmd/inspector@latest
+go run github.com/jarvisfriends/inspector@latest
 ```
 
 Pin a specific release instead of `@latest` by using its tag, e.g. `@v0.0.5`.
 If you already have the repo cloned locally, drop the module path and
-version instead: `go run ./cmd/inspector`.
+version instead: `go run .`.
 
 Either way it fills the terminal with the inspector itself — no host app
 required. You can also download a prebuilt, signed binary for your OS from

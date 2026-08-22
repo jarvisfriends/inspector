@@ -10,7 +10,7 @@ before:
 builds:
   - id: inspector
     binary: inspector
-    main: ./cmd/inspector
+    main: .
     env:
       - CGO_ENABLED=0
     goos:
