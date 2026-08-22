@@ -37,7 +37,7 @@ echo "==> golangci-lint"
 if ! command -v golangci-lint >/dev/null 2>&1; then
   echo "ERROR: golangci-lint not found. Install with:"
   # renovate: datasource=go depName=github.com/golangci/golangci-lint/v2
-  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
+  echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1"
   exit 1
 fi
 golangci-lint run ./...
