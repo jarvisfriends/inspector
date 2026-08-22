@@ -30,7 +30,7 @@ an overlay and forward keys/mouse/resize. It is host-agnostic:
 ## Run standalone
 
 ```sh
-go run ./cmd/inspector
+go run .
 ```
 
 Fills the terminal with the inspector itself: tab/←/→ or digits switch tabs,

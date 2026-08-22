@@ -10,7 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/jarvisfriends/inspector"
+	"github.com/jarvisfriends/inspector/inspector"
 )
 
 // app hosts the inspector model fullscreen and keeps it visible.
