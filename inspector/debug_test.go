@@ -396,7 +396,8 @@ func TestSettingsRowForLineIsOneToOne(t *testing.T) {
 		t.Fatalf("test premise: need at least 4 rows; got %d", len(items))
 	}
 
-	m.settingsCursor = 0 // the selected row must NOT shift lines below it
+	clear(m.collapsedSections) // expand everything: mapping is pure identity
+	m.settingsCursor = 0       // the selected row must NOT shift lines below it
 	for _, line := range []int{0, 1, 2, 3, len(items) - 1} {
 		if got := m.settingsRowForLine(items, line); got != line {
 			t.Errorf("settingsRowForLine(line=%d) = %d; want identity", line, got)
@@ -407,6 +408,14 @@ func TestSettingsRowForLineIsOneToOne(t *testing.T) {
 	}
 	if got := m.settingsRowForLine(items, len(items)); got != -1 {
 		t.Errorf("line past the last row mapped to %d; want -1", got)
+	}
+
+	// With a section collapsed, its body rows drop out of the mapping: the
+	// line after the header maps to the NEXT header, not a hidden row.
+	m.collapsedSections[settingsRowBuiltinHeader] = true
+	if got := m.settingsRowForLine(items, int(settingsRowBuiltinHeader)+1); got != int(settingsRowGotoolHeader) {
+		t.Errorf("line after a collapsed header mapped to %d; want %d",
+			got, int(settingsRowGotoolHeader))
 	}
 }
 

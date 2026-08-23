@@ -353,6 +353,10 @@ type InspectorModel struct {
 
 	activeTab       debugTab
 	settingsCursor  int
+	// collapsedSections maps a SectionOnly row's index to its collapsed
+	// state; body rows of a collapsed section are hidden (the tui-base SP-9
+	// pattern). Enter or a click on the header toggles it.
+	collapsedSections map[settingsRowIndex]bool
 	statusSummary   summaryFlags
 	linkSummary     func() string
 	pprof           pprofConfig
@@ -583,7 +587,7 @@ func (m *InspectorModel) scrollActiveSection(lines int) {
 		if len(items) == 0 {
 			return
 		}
-		m.settingsCursor = max(0, min(len(items)-1, m.settingsCursor+lines))
+		m.moveSettingsCursor(items, lines)
 		m.ensureSettingsCursorVisible(len(items))
 		m.saveActiveTabScroll()
 		m.dirty = true
@@ -612,7 +616,20 @@ func (m *InspectorModel) ensureSettingsCursorVisible(itemCount int) {
 	if itemCount <= 0 || m.sectionViewport.Height() <= 0 {
 		return
 	}
-	row := max(0, min(itemCount-1, m.settingsCursor))
+	// Scroll offsets are rendered-LINE positions: find the cursor's place in
+	// the visible-row list (collapsed sections render nothing).
+	items := m.settingsRows()
+	vis := m.visibleSettingsRows(items)
+	if len(vis) == 0 {
+		return
+	}
+	row := 0
+	for p, idx := range vis {
+		row = p
+		if idx >= m.settingsCursor {
+			break // exact match, or the nearest visible row after a hidden one
+		}
+	}
 	top := m.sectionViewport.YOffset()
 	bottom := top + m.sectionViewport.Height() - 1
 	if row < top {
@@ -637,26 +654,85 @@ func (m *InspectorModel) activateSettingsRowByClick(localY int) tea.Cmd {
 	if row < 0 {
 		return nil
 	}
-	if items[row].SectionOnly {
-		return nil // headers are labels, not click targets
-	}
+	// Headers are click targets too: Enter on one toggles its collapse.
 	m.settingsCursor = row
 	m.ensureSettingsCursorVisible(len(items))
 	m.dirty = true
 	return m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 }
 
+// settingsHeaderOf returns the index of the SectionOnly header governing row
+// i, or -1 for rows before the first header (those are always visible).
+func settingsHeaderOf(items []debugSettingRow, i int) int {
+	for h := i - 1; h >= 0; h-- {
+		if items[h].SectionOnly {
+			return h
+		}
+	}
+	return -1
+}
+
+// settingsSectionSize counts the body rows belonging to the header at h.
+func settingsSectionSize(items []debugSettingRow, h int) int {
+	n := 0
+	for i := h + 1; i < len(items) && !items[i].SectionOnly; i++ {
+		n++
+	}
+	return n
+}
+
+// settingsRowShown reports whether row i currently renders: headers always
+// do; body rows hide while their section is collapsed.
+func (m *InspectorModel) settingsRowShown(items []debugSettingRow, i int) bool {
+	if items[i].SectionOnly {
+		return true
+	}
+	h := settingsHeaderOf(items, i)
+	return h < 0 || !m.collapsedSections[settingsRowIndex(h)]
+}
+
+// visibleSettingsRows returns the indices of the rows currently rendered, in
+// order — the line↔row mapping used by clicks and cursor movement. Each
+// visible row is exactly one rendered line (help and the settings message
+// live in the pinned footer, never inside the list).
+func (m *InspectorModel) visibleSettingsRows(items []debugSettingRow) []int {
+	vis := make([]int, 0, len(items))
+	for i := range items {
+		if m.settingsRowShown(items, i) {
+			vis = append(vis, i)
+		}
+	}
+	return vis
+}
+
 // settingsRowForLine maps a rendered line inside the settings section back to
-// its settingsRows index, or -1 outside the list. The layout is exactly one
-// line per row — the selected row's help and the settings message render in
-// the pinned footer, never inside the list. (The help line used to render
-// under the selected row, shifting every click below the cursor onto the
-// wrong row — the reason "open in browser" rows didn't open on click.)
+// its settingsRows index, or -1 outside the list. (The help line used to
+// render under the selected row, shifting every click below the cursor onto
+// the wrong row — the reason "open in browser" rows didn't open on click.)
 func (m *InspectorModel) settingsRowForLine(items []debugSettingRow, line int) int {
-	if line < 0 || line >= len(items) {
+	vis := m.visibleSettingsRows(items)
+	if line < 0 || line >= len(vis) {
 		return -1
 	}
-	return line
+	return vis[line]
+}
+
+// moveSettingsCursor steps the cursor over the visible rows only, so a
+// collapsed section is one step, not thirteen.
+func (m *InspectorModel) moveSettingsCursor(items []debugSettingRow, delta int) {
+	vis := m.visibleSettingsRows(items)
+	if len(vis) == 0 {
+		return
+	}
+	pos := len(vis) - 1
+	for p, idx := range vis {
+		if idx >= m.settingsCursor {
+			pos = p
+			break
+		}
+	}
+	pos = max(0, min(len(vis)-1, pos+delta))
+	m.settingsCursor = vis[pos]
 }
 
 // dirPickerUpdate routes one message to the open folder picker. Every message
@@ -745,6 +821,12 @@ func New() *InspectorModel {
 	// populate stats immediately so View() has data before the first tick fires
 	m.stats = collectSnapshot(m.startTime)
 	m.prevStats = m.stats
+	// The pprof endpoint sections start collapsed — 13 rows that are inert
+	// until the profiler server is enabled. Feature Flags stays expanded.
+	m.collapsedSections = map[settingsRowIndex]bool{
+		settingsRowBuiltinHeader: true,
+		settingsRowGotoolHeader:  true,
+	}
 	// Runtime and Input render through renderKVGrid — only Disks still uses a
 	// bubbles table (its rows are actual data with a meaningful cursor).
 	m.diskHeader = []table.Column{
@@ -1673,13 +1755,25 @@ func (m *InspectorModel) renderSettingsSection(c *styles.AppStyle) string {
 	spaceStyle := lipgloss.NewStyle().Background(c.SelectionBg)
 
 	// Category headers use the same style as the Terminal tab's sections (and
-	// the settings page's category headers).
+	// the settings page's category headers). They are cursor stops: Enter or
+	// a click toggles the section's collapse.
 	sectionHeader := c.Styles.Subtitle.Bold(true)
+	selectedHeader := sectionHeader.Foreground(c.SelectionFg).Background(c.SelectionBg)
 
 	var out []string
-	for i, row := range items {
+	for _, i := range m.visibleSettingsRows(items) {
+		row := items[i]
 		if row.SectionOnly {
-			out = append(out, sectionHeader.Render(row.Field))
+			marker := "▾ "
+			if m.collapsedSections[settingsRowIndex(i)] {
+				marker = "▸ "
+			}
+			label := fmt.Sprintf("%s%s (%d)", marker, row.Field, settingsSectionSize(items, i))
+			hs := sectionHeader
+			if i == m.settingsCursor {
+				hs = selectedHeader
+			}
+			out = append(out, hs.Render(ansi.Truncate(label, availW, "…")))
 			continue
 		}
 		field := ansi.Truncate(row.Field, fieldW, "…")
@@ -1809,7 +1903,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 			Help:       "Records CPU samples for the configured duration. Blocks the UI during capture. Analyze with: go tool pprof <file>",
 		},
 		// 15: section header
-		{Field: "── Browser viewer (profiler HTTP must be enabled above) ──", SectionOnly: true},
+		{Field: "Browser viewer (needs the profiler HTTP server)", SectionOnly: true},
 		// 16-25: built-in browser endpoints (no external dependencies)
 		{
 			Field:      "Profile index page",
@@ -1873,7 +1967,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 		},
 		// 26: section header
 		{
-			Field:       "── go tool pprof -http (Go in PATH required; graph view needs Graphviz 'dot') ──",
+			Field:       "go tool pprof -http (Go in PATH; graph view needs Graphviz 'dot')",
 			SectionOnly: true,
 		},
 		// 27-29: go tool pprof -http (needs Go toolchain; graph view needs Graphviz)
@@ -1911,7 +2005,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 			return rows
 		}
 		rows = append(rows, debugSettingRow{
-			Field:       "── Feature Flags (developer) ──",
+			Field:       "Feature Flags (developer)",
 			SectionOnly: true,
 		})
 		for _, def := range defs {
@@ -1936,21 +2030,25 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 	}
 	switch km.Code {
 	case tea.KeyUp:
-		if m.settingsCursor > 0 {
-			m.settingsCursor--
-		}
+		m.moveSettingsCursor(items, -1)
 		m.dirty = true
 		return nil
 	case tea.KeyDown:
-		if m.settingsCursor < len(items)-1 {
-			m.settingsCursor++
-		}
+		m.moveSettingsCursor(items, 1)
 		m.dirty = true
 		return nil
 	}
 
 	// Only Enter is routed here now; Left/Right fall through to tab switching.
 	if km.Code != tea.KeyEnter {
+		m.dirty = true
+		return nil
+	}
+
+	// Enter on a section header toggles its collapse (▸/▾).
+	if m.settingsCursor < len(items) && items[m.settingsCursor].SectionOnly {
+		h := settingsRowIndex(m.settingsCursor)
+		m.collapsedSections[h] = !m.collapsedSections[h]
 		m.dirty = true
 		return nil
 	}
