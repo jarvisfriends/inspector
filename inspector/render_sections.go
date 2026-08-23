@@ -353,35 +353,51 @@ func logLevelRank(t string) int {
 // logLevelRankWarn is the threshold used by the WARN+ filter (I-6).
 const logLevelRankWarn = 2
 
+// logFilterTag names the active level floor for titles and placeholders
+// ("" when no floor is active).
+func (m *InspectorModel) logFilterTag() string {
+	switch m.logLevelFloor {
+	case logLevelRankWarn:
+		return "WARN+"
+	case 0:
+		return ""
+	default:
+		return "INFO+"
+	}
+}
+
 func (m *InspectorModel) renderLogContent(c *styles.AppStyle) string {
 	var b strings.Builder
 	for _, log := range m.Logs {
-		if m.logWarnPlus && logLevelRank(log.Type) < logLevelRankWarn {
+		if m.logLevelFloor > 0 && logLevelRank(log.Type) < m.logLevelFloor {
 			continue
 		}
 		timestamp := log.Timestamp.Format("15:04:05")
 		countStr := ""
 		if log.Count > 1 {
-			countStr = c.Styles.Warning.Render(fmt.Sprintf(" [%d events]", log.Count))
+			countStr = c.Styles.Warning.Render(fmt.Sprintf(" ×%d", log.Count))
 		}
 		typeStr := c.Styles.Title.Render(log.Type)
-		line := fmt.Sprintf(
-			"%s %s%s\n  %s",
-			c.Styles.Subtitle.Render(timestamp),
-			typeStr,
-			countStr,
-			c.Styles.TextOnBg.Render(log.Content),
-		)
-		b.WriteString(line)
-		b.WriteString("\n\n")
+		if m.logExpanded {
+			// Verbose ('v'): header line plus the full multi-line content.
+			fmt.Fprintf(&b, "%s %s%s\n  %s\n\n",
+				c.Styles.Subtitle.Render(timestamp), typeStr, countStr,
+				c.Styles.TextOnBg.Render(log.Content))
+			continue
+		}
+		// Compact default: one line per entry — triple the visible history.
+		content := strings.ReplaceAll(log.Content, "\n", " ")
+		fmt.Fprintf(&b, "%s %s%s %s\n",
+			c.Styles.Dim.Render(timestamp), typeStr, countStr,
+			c.Styles.TextOnBg.Render(content))
 	}
 	if b.Len() == 0 {
-		if m.logWarnPlus {
-			return "No WARN+ messages. Press 'f' to show all."
+		if tag := m.logFilterTag(); tag != "" {
+			return "No " + tag + " messages. Press 'f' to cycle the filter."
 		}
 		return "No messages intercepted yet..."
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m *InspectorModel) buildTabsLine(c *styles.AppStyle) string {
@@ -489,8 +505,8 @@ func (m *InspectorModel) sectionForActiveTab(
 		return debugTabTitleAccessibility, "(accessibility panel not available)"
 	case debugTabLog:
 		title := "Message Log"
-		if m.logWarnPlus {
-			title += " [WARN+ only]"
+		if tag := m.logFilterTag(); tag != "" {
+			title += " [" + tag + " only]"
 		}
 		return title, logContent
 	case debugTabSettings:

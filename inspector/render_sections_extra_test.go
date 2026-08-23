@@ -95,12 +95,16 @@ func TestSectionForActiveTabAllBranches(t *testing.T) {
 		}
 	}
 
-	// Log tab title gains the filter suffix when WARN+ only is active.
-	m.logWarnPlus = true
+	// Log tab title gains the filter suffix when a level floor is active.
+	m.logLevelFloor = logLevelRankWarn
 	if title, _ := section(debugTabLog); !strings.Contains(title, "[WARN+ only]") {
 		t.Errorf("filtered log title = %q; want WARN+ suffix", title)
 	}
-	m.logWarnPlus = false
+	m.logLevelFloor = 1
+	if title, _ := section(debugTabLog); !strings.Contains(title, "[INFO+ only]") {
+		t.Errorf("filtered log title = %q; want INFO+ suffix", title)
+	}
+	m.logLevelFloor = 0
 
 	// Accessibility with a live panel: panel content is embedded.
 	m.switchTab(debugTabAccessibility) // toggles the panel visible
@@ -165,7 +169,7 @@ func TestRenderLogContentEmptyStates(t *testing.T) {
 	if got := m.renderLogContent(c); !strings.Contains(got, "No messages intercepted yet") {
 		t.Errorf("empty log = %q; want placeholder", got)
 	}
-	m.logWarnPlus = true
+	m.logLevelFloor = logLevelRankWarn
 	if got := m.renderLogContent(c); !strings.Contains(got, "No WARN+ messages") {
 		t.Errorf("empty filtered log = %q; want WARN+ placeholder", got)
 	}

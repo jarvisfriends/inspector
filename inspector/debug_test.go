@@ -91,10 +91,26 @@ func TestLogLevelFilterWarnPlus(t *testing.T) {
 		}
 	}
 
-	// Pressing 'f' enables the WARN+ filter.
+	// 'f' cycles: everything → INFO+ → WARN+ → everything.
 	_, _ = m.Update(tea.KeyPressMsg{Text: "f"})
-	if !m.logWarnPlus {
-		t.Fatal("expected logWarnPlus=true after pressing 'f'")
+	if m.logLevelFloor != 1 {
+		t.Fatalf("logLevelFloor = %d after first 'f'; want 1 (INFO+)", m.logLevelFloor)
+	}
+	infoPlus := m.renderLogContent(c)
+	for _, want := range []string{testLogMsgInfo, testLogMsgWarn, testLogMsgErr} {
+		if !strings.Contains(infoPlus, want) {
+			t.Errorf("INFO+ log should keep %q", want)
+		}
+	}
+	for _, gone := range []string{testLogMsgDbg, testLogMsgIntercepted} {
+		if strings.Contains(infoPlus, gone) {
+			t.Errorf("INFO+ log should drop %q", gone)
+		}
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Text: "f"})
+	if m.logLevelFloor != logLevelRankWarn {
+		t.Fatalf("logLevelFloor = %d after second 'f'; want WARN+", m.logLevelFloor)
 	}
 	filtered := m.renderLogContent(c)
 	for _, want := range []string{testLogMsgWarn, testLogMsgErr} {
@@ -108,10 +124,45 @@ func TestLogLevelFilterWarnPlus(t *testing.T) {
 		}
 	}
 
-	// Pressing 'f' again disables it.
+	// A third press wraps back to everything.
 	_, _ = m.Update(tea.KeyPressMsg{Text: "f"})
-	if m.logWarnPlus {
-		t.Fatal("expected logWarnPlus=false after second 'f'")
+	if m.logLevelFloor != 0 {
+		t.Fatalf("logLevelFloor = %d after third 'f'; want 0 (everything)", m.logLevelFloor)
+	}
+}
+
+// TestLogCompactAndExpandedLayouts: entries render one line each by default;
+// 'v' switches to the verbose header+content layout (and back).
+func TestLogCompactAndExpandedLayouts(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetColors(styles.Active())
+	m.Logs = []MsgLog{
+		{Timestamp: time.Now(), Type: "INFO", Content: "line one\nline two", Count: 3},
+		{Timestamp: time.Now(), Type: "WARN", Content: "warned", Count: 1},
+	}
+	c := m.Colors()
+
+	compact := m.renderLogContent(c)
+	if got := lipgloss.Height(compact); got != 2 {
+		t.Fatalf("compact log = %d lines; want 2 (one per entry):\n%s", got, compact)
+	}
+	if !strings.Contains(compact, "×3") {
+		t.Errorf("compact log missing the ×3 repeat badge:\n%s", compact)
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Text: "v"})
+	if !m.logExpanded {
+		t.Fatal("expected logExpanded=true after 'v'")
+	}
+	expanded := m.renderLogContent(c)
+	if lipgloss.Height(expanded) <= 2 {
+		t.Fatalf("expanded log should span more lines than compact:\n%s", expanded)
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Text: "v"})
+	if m.logExpanded {
+		t.Fatal("expected logExpanded=false after second 'v'")
 	}
 }
 

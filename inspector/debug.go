@@ -96,7 +96,8 @@ type DebugKeyMap struct {
 	NotifyWarning key.Binding // fire a test warning notification
 	NotifyError   key.Binding // fire a test error notification
 	ExportLog     key.Binding // export inspector log to file
-	LevelFilter   key.Binding // toggle the Log tab's WARN+ only filter
+	LevelFilter   key.Binding // cycle the Log tab's level filter (all → INFO+ → WARN+)
+	LogDetail     key.Binding // toggle compact/expanded Log tab entries
 
 	// NextTab/PrevTab cycle the inspector tabs. The router syncs them with the
 	// application's NextPage/PreviousPage bindings (SetNavKeys) so switching
@@ -131,7 +132,8 @@ func DefaultDebugKeys() DebugKeyMap {
 			key.WithHelp("e", "test error notification"),
 		),
 		ExportLog:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "export log to file")),
-		LevelFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "filter WARN+ only")),
+		LevelFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "cycle level filter")),
+		LogDetail:   key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "expanded entries")),
 		NextTab: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "next tab"),
@@ -305,9 +307,13 @@ type InspectorModel struct {
 	sectionViewport viewport.Model
 	inputViewport   viewport.Model
 	scrollToBottom  bool
-	// logWarnPlus filters the Log tab to WARN+ entries only when true (I-6).
-	// Intercepted (non-level) messages are hidden while it is active.
-	logWarnPlus bool
+	// logLevelFloor filters the Log tab: 0 shows everything, 1 keeps INFO
+	// and above, logLevelRankWarn keeps WARN+ (I-6). Intercepted (non-level)
+	// messages are hidden whenever a floor is active. 'f' cycles it.
+	logLevelFloor int
+	// logExpanded switches the Log tab from the compact one-line-per-entry
+	// layout to the verbose header+content layout. 'v' toggles it.
+	logExpanded bool
 	// Accessibility panel — shown when its tab is active
 	acPanel *AccessibilityPanel
 	// gates controls visibility of gated tabs (currently the Accessibility
@@ -428,7 +434,7 @@ func (m *InspectorModel) ShortHelp() []key.Binding {
 		return []key.Binding{m.keys.TabSwitch, m.keys.Scroll, m.keys.EnterRun}
 	case debugTabLog:
 		return []key.Binding{
-			m.keys.TabSwitch, m.keys.Scroll, m.keys.LevelFilter,
+			m.keys.TabSwitch, m.keys.Scroll, m.keys.LevelFilter, m.keys.LogDetail,
 			m.keys.NotifyInfo, m.keys.NotifyWarning, m.keys.NotifyError, m.keys.ExportLog,
 		}
 	case debugTabRuntime, debugTabInput, debugTabDisks, debugTabTerminal, debugTabAccessibility:
@@ -1053,7 +1059,13 @@ func (m *InspectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(km, m.keys.ExportLog):
 				return m, tea.Batch(preCmd, m.exportLogCmd())
 			case key.Matches(km, m.keys.LevelFilter):
-				m.logWarnPlus = !m.logWarnPlus
+				// Cycle: everything → INFO+ → WARN+ → everything.
+				m.logLevelFloor = (m.logLevelFloor + 1) % (logLevelRankWarn + 1)
+				m.scrollToBottom = true
+				m.dirty = true
+				return m, preCmd
+			case key.Matches(km, m.keys.LogDetail):
+				m.logExpanded = !m.logExpanded
 				m.scrollToBottom = true
 				m.dirty = true
 				return m, preCmd
