@@ -242,71 +242,54 @@ func TestInspectorWheelScrollClampsAtBounds(t *testing.T) {
 	}
 }
 
-// TestRuntimeColumnWidthHighWatermark verifies that once a wide value has been
-// rendered into a column, that column never shrinks on subsequent renders even
-// when all current values for it are narrower.
-//
-// Column 7 receives: PID, TermSize, StackInUse, BinSize, HeapObjects, OffX/Y.
-// By zero-ing the stable sources and making HeapObjects transiently huge we can
-// guarantee the wide render owns the max, then drop it and assert no shrink.
-func TestRuntimeColumnWidthHighWatermark(t *testing.T) {
+// TestRuntimeGridRendersAllMetrics: the Runtime tab's key-value grid carries
+// every metric group and never renders a line wider than the section.
+func TestRuntimeGridRendersAllMetrics(t *testing.T) {
 	t.Parallel()
 
 	m := New()
-	// Wide terminal to stay in table mode, not flat-list mode.
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 300, Height: 40})
-
-	// Zero out the stable contributors to column 7 so HeapObjects is the sole
-	// wide value. "300x40" (TermSize) = 6 chars; PID ≤ 7 chars on all major OS.
-	m.stats.StackInUseBytes = 0   // "0 B" = 3 chars
-	m.stats.Launch.BinarySize = 0 // "0 B" = 3 chars
-	// Use a HeapObjects value whose formatted string (English locale with commas)
-	// is wider than any stable column-7 value: "999,999,999,999" = 15 chars.
-	m.stats.HeapObjects = 999_999_999_999
-
 	// Fix the timestamps so elapsed = 1 s (avoids / 0 fallback noise).
 	base := time.Now()
 	m.prevStats.CapturedAt = base.Add(-time.Second)
 	m.stats.CapturedAt = base
 
-	m.dirty = true
-	_ = m.View()
-
-	wideW7 := m.runtimeColumns[7].Width
-	if wideW7 <= 6 { // must be > TermSize width ("300x40" = 6)
-		t.Fatalf("expected column 7 width > 6 after HeapObjects=999_999_999_999; got %d", wideW7)
+	c := styles.Active()
+	out := m.renderRuntimeSection(c, m.buildRuntimeRows(c), 120)
+	for _, want := range []string{"Uptime", "Goroutines", "Heap Alloc", "GC Cycles", "Heap Objects"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runtime grid missing %q", want)
+		}
 	}
-
-	// Now shrink HeapObjects to a single digit. All stable values in column 7 are
-	// narrower than wideW7, so without the watermark the column would shrink.
-	m.stats.HeapObjects = 1
-	m.dirty = true
-	_ = m.View()
-
-	if m.runtimeColumns[7].Width < wideW7 {
-		t.Errorf("column 7 shrank: was %d after wide render, now %d after narrow render",
-			wideW7, m.runtimeColumns[7].Width)
+	for i, line := range strings.Split(out, "\n") {
+		if lipgloss.Width(line) > 120 {
+			t.Errorf("grid line %d overflows: width %d > 120", i, lipgloss.Width(line))
+		}
 	}
 }
 
-// TestRuntimeColumnWidthNeverBelowTitle verifies that column widths always meet
-// or exceed the rendered width of the column title, even on the first render.
-func TestRuntimeColumnWidthNeverBelowTitle(t *testing.T) {
+// TestKVGridReflowsToWidth: wide sections spread pairs across column pairs,
+// narrow ones stack a single pair per line — and neither overflows.
+func TestKVGridReflowsToWidth(t *testing.T) {
 	t.Parallel()
 
 	m := New()
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 300, Height: 40})
-	m.dirty = true
-	_ = m.View()
+	c := styles.Active()
+	pairs := flattenPairs(m.buildRuntimeRows(c))
+	if len(pairs) < 8 {
+		t.Fatalf("test premise: expected a rich pair set; got %d", len(pairs))
+	}
 
-	for i, col := range m.runtimeColumns {
-		title := settingsColMetric
-		if i%2 != 0 {
-			title = settingsColValue
-		}
-		minW := len(title) // plain ASCII: visual width == byte length
-		if col.Width < minW {
-			t.Errorf("column %d width %d is below title %q width %d", i, col.Width, title, minW)
+	wide := renderKVGrid(c, pairs, 220)
+	narrow := renderKVGrid(c, pairs, 24)
+	if lipgloss.Height(narrow) <= lipgloss.Height(wide) {
+		t.Errorf("narrow grid (%d lines) should stack more rows than wide (%d)",
+			lipgloss.Height(narrow), lipgloss.Height(wide))
+	}
+	for i, line := range strings.Split(narrow, "\n") {
+		if lipgloss.Width(line) > 24 {
+			t.Errorf("narrow grid line %d overflows: width %d > 24", i, lipgloss.Width(line))
 		}
 	}
 }
@@ -431,19 +414,16 @@ func TestPerTabScrollPreservedAcrossSwitches(t *testing.T) {
 	t.Parallel()
 
 	m := New()
-	// Wide enough that the Runtime tab uses its bubbles table (the flat
-	// fallback at narrow widths keeps viewport scrolling instead).
-	_, _ = m.Update(tea.WindowSizeMsg{Width: 160, Height: 10})
+	// Short terminal so the runtime grid is taller than the section and the
+	// viewport actually scrolls.
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	_ = m.View()
 
-	// Table tabs (Runtime) no longer scroll the section viewport: navigation
-	// keys move the table's row cursor instead.
+	// Runtime renders a key-value grid in the section viewport: KeyDown
+	// scrolls it like any non-table tab and records per-tab scroll state.
 	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if got := m.runtimeTbl.Cursor(); got != 1 {
-		t.Fatalf("expected runtime table cursor=1 after KeyDown; got %d", got)
-	}
-	if got := m.tabScrollY[debugTabRuntime]; got != 0 {
-		t.Fatalf("runtime KeyDown must move the table cursor, not the viewport; offset=%d", got)
+	if got := m.tabScrollY[debugTabRuntime]; got <= 0 {
+		t.Fatalf("expected the runtime grid to scroll with KeyDown; offset=%d", got)
 	}
 
 	// Viewport tabs (Terminal) keep per-tab scroll state across switches.

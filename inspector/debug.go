@@ -63,8 +63,6 @@ const AccessibilityTabGate = "Inspector Accessibility Tab"
 const (
 	debugTabTitleAccessibility = "Accessibility"
 	pprofViewModeBuiltin       = "builtin"
-	settingsColMetric          = "Metric"
-	settingsColValue           = "Value"
 	settingsActionOpen         = "Open"
 	settingsActionRun          = "Run"
 	pprofKindSnapshot          = "snapshot"
@@ -337,16 +335,10 @@ type InspectorModel struct {
 	visible        bool
 
 	// Cached render artifacts to reduce per-frame allocations.
-	view            tea.View
-	dirty           bool
-	runtimeTbl      table.Model
-	inputDbgTbl     table.Model
-	inputDbgColumns []table.Column // pre-allocated column slice for the input debug table
-	inputDbgColMaxW []int          // high-watermark: max rendered width ever seen per column
-	diskTbl         table.Model
-	runtimeColumns  []table.Column // pre-allocated column slice for the runtime stats table (to avoid reallocating on every View)
-	runtimeColMaxW  []int          // high-watermark: max rendered width ever seen per column
-	diskHeader      []table.Column // pre-allocated column slice for the disk stats table
+	view       tea.View
+	dirty      bool
+	diskTbl    table.Model
+	diskHeader []table.Column // pre-allocated column slice for the disk stats table
 
 	// colorProfileEnvVar is the app-specific env var name for color-profile
 	// overrides, set by the router via SetColorProfileEnvVar.
@@ -524,16 +516,12 @@ func (m *InspectorModel) activeDataTable() *table.Model {
 	if !m.tableActive[m.activeTab] {
 		return nil
 	}
-	switch m.activeTab { //nolint:exhaustive // non-table tabs fall through to nil
-	case debugTabRuntime:
-		return &m.runtimeTbl
-	case debugTabInput:
-		return &m.inputDbgTbl
-	case debugTabDisks:
+	// Disks is the only remaining table tab: Runtime and Input render via
+	// renderKVGrid (fixed-shape telemetry has no meaningful row cursor).
+	if m.activeTab == debugTabDisks {
 		return &m.diskTbl
-	default:
-		return nil
 	}
+	return nil
 }
 
 // setTableActive records whether a tab's last render used its bubbles table
@@ -757,35 +745,8 @@ func New() *InspectorModel {
 	// populate stats immediately so View() has data before the first tick fires
 	m.stats = collectSnapshot(m.startTime)
 	m.prevStats = m.stats
-	m.runtimeColumns = make([]table.Column, 8)
-	m.runtimeColMaxW = make([]int, 8)
-	for i := range m.runtimeColumns {
-		if i%2 == 0 {
-			m.runtimeColumns[i] = table.Column{Title: settingsColMetric, Width: -1}
-		} else {
-			m.runtimeColumns[i] = table.Column{Title: settingsColValue, Width: -1}
-		}
-	}
-
-	m.inputDbgColumns = make([]table.Column, 6)
-	for i := range m.inputDbgColumns {
-		if i%2 == 0 {
-			m.inputDbgColumns[i] = table.Column{Title: settingsColMetric, Width: -1}
-		} else {
-			m.inputDbgColumns[i] = table.Column{Title: settingsColValue, Width: -1}
-		}
-	}
-	m.inputDbgColMaxW = make([]int, 6)
-
-	m.inputDbgTbl = table.New(
-		table.WithColumns(m.inputDbgColumns),
-		table.WithRows(nil),
-		table.WithFocused(true),
-		table.WithHeight(2),
-		table.WithWidth(60),
-		table.WithKeyMap(dataTableKeyMap()),
-	)
-
+	// Runtime and Input render through renderKVGrid — only Disks still uses a
+	// bubbles table (its rows are actual data with a meaningful cursor).
 	m.diskHeader = []table.Column{
 		{Title: "Drive", Width: 5},
 		{Title: "Used", Width: 5},
@@ -795,14 +756,6 @@ func New() *InspectorModel {
 		{Title: "Error", Width: 0},
 	}
 
-	m.runtimeTbl = table.New(
-		table.WithColumns(m.runtimeColumns),
-		table.WithRows(nil),
-		table.WithFocused(true),
-		table.WithHeight(2),
-		table.WithWidth(80),
-		table.WithKeyMap(dataTableKeyMap()),
-	)
 	m.diskTbl = table.New(
 		table.WithColumns(m.diskHeader),
 		table.WithRows(nil),
@@ -1369,10 +1322,8 @@ func (m *InspectorModel) View() tea.View {
 	availW := max(m.Width()-frameH, 20)
 	runtimeRows := m.buildRuntimeRows(c)
 	inputRows := m.buildInputRows(c)
-	m.updateRuntimeColumnWidths(runtimeRows)
-	m.updateInputColumnWidths(inputRows)
 	tblStyles := m.baseTableStyles(c)
-	runtimeSection := m.renderRuntimeSection(c, tblStyles, runtimeRows, availW)
+	runtimeSection := m.renderRuntimeSection(c, runtimeRows, availW)
 	logContent := m.renderLogContent(c)
 	rawTabsLine := m.buildTabsLine(c)
 	sectionTitle, sectionContent := m.sectionForActiveTab(
@@ -2504,51 +2455,6 @@ func getEnvOr(name, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-// renderRuntimeFlat renders all metric+value pairs from the runtime profiling
-// table as a compact 2-column key→value list. Used when the terminal is too
-// narrow to fit all columns side-by-side without clipping.
-func renderRuntimeFlat(rows []table.Row, c *styles.AppStyle, width int) string {
-	// Flatten every (metric, value) pair from all rows.
-	type pair struct{ k, v string }
-	var pairs []pair
-	for _, row := range rows {
-		for i := 0; i+1 < len(row); i += 2 {
-			if row[i] == "" {
-				continue
-			}
-			pairs = append(pairs, pair{k: row[i], v: row[i+1]})
-		}
-	}
-
-	// Key column width: widest metric name, capped at 1/3 of available width.
-	maxK := 0
-	for _, p := range pairs {
-		if w := lipgloss.Width(p.k); w > maxK {
-			maxK = w
-		}
-	}
-	keyW := min(maxK, width/3)
-	valW := max(width-keyW-2, 4) // 2 for the " " separator + left margin
-
-	keyStyle := c.Styles.Item.Width(keyW)
-	sep := c.Styles.RealHeader.Render(strings.Repeat("─", min(width, 60)))
-
-	// Group every 4 pairs with a thin separator line (mirrors original row grouping).
-	var sb strings.Builder
-	for i, p := range pairs {
-		if i > 0 && i%4 == 0 {
-			sb.WriteString(sep)
-			sb.WriteByte('\n')
-		}
-		val := lipgloss.NewStyle().MaxWidth(valW).Render(p.v)
-		sb.WriteString(keyStyle.Render(p.k))
-		sb.WriteByte(' ')
-		sb.WriteString(val)
-		sb.WriteByte('\n')
-	}
-	return strings.TrimRight(sb.String(), "\n")
 }
 
 var _ styles.ColorAware = (*InspectorModel)(nil)

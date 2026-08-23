@@ -129,8 +129,8 @@ func TestSectionForActiveTabAllBranches(t *testing.T) {
 	}
 }
 
-// TestRenderInputSectionFlatFallback asserts narrow widths fall back to the
-// flat key/value list and mark the input table inactive.
+// TestRenderInputSectionFlatFallback asserts the input grid reflows at
+// narrow widths without overflowing and never claims a table cursor.
 func TestRenderInputSectionFlatFallback(t *testing.T) {
 	t.Parallel()
 
@@ -138,16 +138,20 @@ func TestRenderInputSectionFlatFallback(t *testing.T) {
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 	c := styles.Active()
 	rows := m.buildInputRows(c)
-	m.updateInputColumnWidths(rows)
 
-	out := m.renderInputSection(c, m.baseTableStyles(c), rows, 30)
+	out := m.renderInputSection(c, rows, 30)
 	if m.tableActive[debugTabInput] {
-		t.Fatal("narrow render must mark the input table inactive")
+		t.Fatal("input renders as a grid; it must never mark a table active")
 	}
-	// The narrow key column wraps long metric names, so probe short ones.
-	for _, want := range []string{"Button", "Motion", "Wheel"} {
+	for i, line := range strings.Split(out, "\n") {
+		if lipgloss.Width(line) > 30 {
+			t.Errorf("input grid line %d overflows: width %d > 30", i, lipgloss.Width(line))
+		}
+	}
+	// The narrow key column truncates long metric names, so probe short ones.
+	for _, want := range []string{"Button", "Mod"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("flat input render missing %q:\n%s", want, out)
+			t.Fatalf("input grid missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -193,24 +197,24 @@ func TestColorStatSeverityThresholds(t *testing.T) {
 }
 
 // TestRenderRuntimeFlatSkipsEmptyKeys asserts pairs with empty metric names
-// are dropped from the flat fallback layout.
+// are dropped when the legacy row shape is flattened for the grid.
 func TestRenderRuntimeFlatSkipsEmptyKeys(t *testing.T) {
 	t.Parallel()
 
 	c := styles.Active()
-	out := renderRuntimeFlat(
-		[]table.Row{
-			{"Metric A", "1", "", "hidden", "Metric B", "2"},
-		},
+	out := renderKVGrid(
 		c,
+		flattenPairs([]table.Row{
+			{"Metric A", "1", "", "hidden", "Metric B", "2"},
+		}),
 		60,
 	)
 	if strings.Contains(out, "hidden") {
-		t.Fatalf("flat render kept a pair with an empty key:\n%s", out)
+		t.Fatalf("grid kept a pair with an empty key:\n%s", out)
 	}
 	for _, want := range []string{"Metric A", "Metric B"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("flat render missing %q", want)
+			t.Errorf("grid missing %q", want)
 		}
 	}
 }
