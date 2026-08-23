@@ -442,11 +442,11 @@ func (m *InspectorModel) buildTabsLine(c *styles.AppStyle) string {
 func (m *InspectorModel) tabsLineWithBrand(c *styles.AppStyle, raw string, availW int) string {
 	line := ansi.Truncate(raw, availW, "…")
 	brand := c.Styles.Title.Bold(true).Render("Inspector")
-	pad := availW - lipgloss.Width(line) - lipgloss.Width(brand)
-	if pad < 2 {
+	rest := availW - lipgloss.Width(line)
+	if rest < lipgloss.Width(brand)+2 {
 		return line
 	}
-	return line + strings.Repeat(" ", pad) + brand
+	return line + lipgloss.PlaceHorizontal(rest, lipgloss.Right, brand)
 }
 
 // buildFooterLine renders the pinned bottom line: the section title on the
@@ -472,13 +472,13 @@ func (m *InspectorModel) buildFooterLine(c *styles.AppStyle, title string, avail
 	if right == "" {
 		return ansi.Truncate(left, availW, "…")
 	}
-	pad := availW - lipgloss.Width(left) - lipgloss.Width(right)
-	if pad < 2 {
+	rest := availW - lipgloss.Width(left)
+	if rest < lipgloss.Width(right)+2 {
 		// Not enough room for both: the contextual text wins — the title is
 		// also readable from the highlighted tab.
 		return ansi.Truncate(right, availW, "…")
 	}
-	return left + strings.Repeat(" ", pad) + right
+	return left + lipgloss.PlaceHorizontal(rest, lipgloss.Right, right)
 }
 
 func (m *InspectorModel) sectionForActiveTab(

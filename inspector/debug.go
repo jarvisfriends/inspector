@@ -357,16 +357,16 @@ type InspectorModel struct {
 	latestValueInterval   time.Duration
 	statsRefreshInterval  time.Duration
 
-	activeTab       debugTab
-	settingsCursor  int
+	activeTab      debugTab
+	settingsCursor int
 	// collapsedSections maps a SectionOnly row's index to its collapsed
 	// state; body rows of a collapsed section are hidden (the tui-base SP-9
 	// pattern). Enter or a click on the header toggles it.
 	collapsedSections map[settingsRowIndex]bool
-	statusSummary   summaryFlags
-	linkSummary     func() string
-	pprof           pprofConfig
-	settingsMessage string
+	statusSummary     summaryFlags
+	linkSummary       func() string
+	pprof             pprofConfig
+	settingsMessage   string
 
 	// dirPicker is the modal folder picker (snap/pickers) opened from the
 	// Settings tab's "Output dir" row. While non-nil it owns keyboard input.
