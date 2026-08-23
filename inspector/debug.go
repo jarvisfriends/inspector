@@ -682,6 +682,24 @@ func (m *InspectorModel) settingsRowForLine(items []debugSettingRow, line int) i
 	return -1
 }
 
+// dirPickerUpdate routes one message to the open folder picker. Every message
+// is offered to it — its directory listings arrive as picker-internal
+// messages the inspector cannot name. handled reports the message stops here:
+// always for keys (the picker is modal), otherwise only when the picker
+// produced a command to run.
+func (m *InspectorModel) dirPickerUpdate(msg tea.Msg) (cmd tea.Cmd, handled bool) {
+	model, pcmd := m.dirPicker.Update(msg)
+	if p, ok := model.(*pickers.DirPicker); ok {
+		m.dirPicker = p
+	}
+	m.resolveDirPicker()
+	m.dirty = true // listings and cursor moves arrive with nil cmds
+	if _, isKey := msg.(tea.KeyMsg); isKey {
+		return pcmd, true
+	}
+	return pcmd, pcmd != nil
+}
+
 // resolveDirPicker closes the folder picker once it reports Done or Aborted,
 // committing the chosen directory to the pprof config on Done.
 func (m *InspectorModel) resolveDirPicker() {
@@ -850,20 +868,10 @@ func (m *InspectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	preCmd := m.LogMessageForDebugging(msg)
 
 	// A modal folder picker (Settings → Output dir) owns the keyboard while
-	// open. Every message is offered to it first — its directory listings
-	// arrive as picker-internal messages the inspector cannot name — then
-	// keys stop here while everything else continues to normal handling.
+	// open; non-key messages continue to normal handling unless the picker
+	// produced a command for them.
 	if m.dirPicker != nil {
-		model, pcmd := m.dirPicker.Update(msg)
-		if p, ok := model.(*pickers.DirPicker); ok {
-			m.dirPicker = p
-		}
-		m.resolveDirPicker()
-		m.dirty = true // listings and cursor moves arrive with nil cmds
-		if _, isKey := msg.(tea.KeyMsg); isKey {
-			return m, tea.Batch(preCmd, pcmd)
-		}
-		if pcmd != nil {
+		if pcmd, handled := m.dirPickerUpdate(msg); handled {
 			return m, tea.Batch(preCmd, pcmd)
 		}
 	}
@@ -2014,7 +2022,6 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 	}
 
 	base := strings.TrimRight(m.pprof.ServerURL, "/")
-	secs := strconv.Itoa(max(1, m.pprof.CPUCaptureSecs))
 
 	requiresServer := func() bool {
 		if m.pprof.ServerURL != "" {
@@ -2023,6 +2030,16 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 		m.settingsMessage = "pprof server is not running — enable 'Enable profiler HTTP server' first"
 		m.dirty = true
 		return false
+	}
+
+	// The "Browser viewer" rows all share one shape (server check → open a
+	// pprof endpoint); a data-driven lookup keeps them out of the switch.
+	if path, ok := m.pprofEndpointPath(settingsRowIndex(m.settingsCursor)); ok {
+		if !requiresServer() {
+			return nil
+		}
+		m.dirty = true
+		return openBrowserCmd(base + path)
 	}
 
 	switch settingsRowIndex(m.settingsCursor) {
@@ -2088,56 +2105,7 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 		m.dirty = true
 		return m.captureCPUProfileCmd()
 	// settingsRowBuiltinHeader: section header — not interactive
-	case settingsRowPprofIndex:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/")
-		}
-	case settingsRowHeapDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/heap?debug=1")
-		}
-	case settingsRowHeapDebug2:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/heap?debug=2")
-		}
-	case settingsRowGoroutineDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/goroutine?debug=1")
-		}
-	case settingsRowGoroutineDebug2:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/goroutine?debug=2")
-		}
-	case settingsRowAllocsDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/allocs?debug=1")
-		}
-	case settingsRowBlockDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/block?debug=1")
-		}
-	case settingsRowMutexDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/mutex?debug=1")
-		}
-	case settingsRowCPUStream:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/profile?seconds=" + secs)
-		}
-	case settingsRowTraceStream:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/trace?seconds=5")
-		}
+	// (browser-endpoint rows are handled above via pprofEndpointPath)
 	// settingsRowGotoolHeader: section header — not interactive
 	case settingsRowGotoolLatest:
 		m.dirty = true
@@ -2412,6 +2380,28 @@ func (m *InspectorModel) openGoToolPprofLiveCPUCmd() tea.Cmd {
 			),
 		}
 	}
+}
+
+// pprofEndpointPath maps a "Browser viewer" settings row to the pprof URL
+// path it opens (relative to the running server); ok is false for every row
+// that is not a browser endpoint. Data-driven so handleSettingsKey stays
+// under the cyclomatic ceiling as endpoints accrue.
+func (m *InspectorModel) pprofEndpointPath(row settingsRowIndex) (path string, ok bool) {
+	secs := strconv.Itoa(max(1, m.pprof.CPUCaptureSecs))
+	paths := map[settingsRowIndex]string{
+		settingsRowPprofIndex:      "/",
+		settingsRowHeapDebug1:      "/heap?debug=1",
+		settingsRowHeapDebug2:      "/heap?debug=2",
+		settingsRowGoroutineDebug1: "/goroutine?debug=1",
+		settingsRowGoroutineDebug2: "/goroutine?debug=2",
+		settingsRowAllocsDebug1:    "/allocs?debug=1",
+		settingsRowBlockDebug1:     "/block?debug=1",
+		settingsRowMutexDebug1:     "/mutex?debug=1",
+		settingsRowCPUStream:       "/profile?seconds=" + secs,
+		settingsRowTraceStream:     "/trace?seconds=5",
+	}
+	path, ok = paths[row]
+	return path, ok
 }
 
 // shiftMouseY translates a pointer event vertically so a child rendered at a
