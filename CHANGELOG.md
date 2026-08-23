@@ -16,6 +16,19 @@ on the [GitHub releases page](https://github.com/jarvisfriends/inspector/release
   navigation, Space selects the highlighted folder, Ctrl+S the browsed one,
   Esc cancels.
 
+### Changed
+
+- Layout overhaul (all six items from the 2026-08-22 review): a pinned
+  footer line carries the section title plus the settings status message or
+  the selected row's help (nothing scrolls away, and the settings list is
+  exactly one line per row); the tab bar carries the right-aligned brand and
+  the old centered title + separator rows became content; Runtime and Input
+  are responsive key-value grids instead of cursor tables (Disks keeps the
+  only real table); settings categories collapse behind `▸ Title (n)`
+  headers with the pprof sections collapsed by default; the log is one line
+  per entry by default with 'v' for the verbose layout and 'f' cycling the
+  level filter everything → INFO+ → WARN+.
+
 ### Fixed
 
 - Standalone runs (`inspector` binary) never enabled mouse reporting, so tab
