@@ -9,6 +9,25 @@ on the [GitHub releases page](https://github.com/jarvisfriends/inspector/release
 
 ## [Unreleased]
 
+### Added
+
+- The Settings tab's "Output dir" row is now editable: Enter (or a click)
+  opens snap's folder picker as a modal over the section — arrow/wheel
+  navigation, Space selects the highlighted folder, Ctrl+S the browsed one,
+  Esc cancels.
+
+### Fixed
+
+- Standalone runs (`inspector` binary) never enabled mouse reporting, so tab
+  clicks, wheel navigation, and settings-row clicks only worked inside a host
+  app. The root program now runs cell-motion mouse mode and applies the same
+  border-offset translation the tui-base host does.
+- Settings rows below the selected row activated the wrong row when clicked:
+  the selected row's help line shifts every following row down one line, but
+  the click hit-test assumed a 1:1 line↔row layout. Clicking "open in
+  browser" rows therefore hit the row above (often a no-op). The hit-test now
+  maps rendered lines through the real layout.
+
 ## [0.0.4]
 
 ### Changed

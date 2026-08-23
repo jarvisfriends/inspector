@@ -382,7 +382,12 @@ func TestSettingsRowsAreMouseSelectableAndActionable(t *testing.T) {
 	v := m.View()
 
 	row := 2 // "Status summary on close"
-	y := m.sectionOriginY + row - m.sectionViewport.YOffset()
+	// The selected row (cursor starts on row 0) renders a help line beneath
+	// it, so every row below the cursor sits one rendered line lower than its
+	// index. The old 1:1 mapping ignored that line — clicks below the cursor
+	// activated the row above the one under the pointer.
+	line := row + 1
+	y := m.sectionOriginY + line - m.sectionViewport.YOffset()
 	if cmd := v.OnMouse(
 		tea.MouseReleaseMsg(tea.Mouse{X: 2, Y: y, Button: tea.MouseLeft}),
 	); cmd != nil {
@@ -394,6 +399,36 @@ func TestSettingsRowsAreMouseSelectableAndActionable(t *testing.T) {
 	}
 	if !m.statusSummary.Enabled {
 		t.Fatal("expected clicked settings toggle row to execute Enter action")
+	}
+}
+
+// TestSettingsRowForLineAccountsForHelpLine pins the rendered-line → row
+// mapping: rows above/at the cursor map 1:1, the cursor's help line maps to
+// the cursor's own row, and rows below shift by one.
+func TestSettingsRowForLineAccountsForHelpLine(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.switchTab(debugTabSettings)
+	items := m.settingsRows()
+	if len(items) < 4 || items[0].Help == "" {
+		t.Fatalf("test premise: row 0 must exist and carry help; rows=%d", len(items))
+	}
+
+	m.settingsCursor = 0
+	for line, want := range map[int]int{
+		0: 0, // the cursor row itself
+		1: 0, // its help line still counts as row 0
+		2: 1, // first row below the cursor
+		3: 2,
+	} {
+		if got := m.settingsRowForLine(items, line); got != want {
+			t.Errorf("settingsRowForLine(line=%d) = %d; want %d", line, got, want)
+		}
+	}
+	if got := m.settingsRowForLine(items, -1); got != -1 {
+		t.Errorf("negative line mapped to %d; want -1", got)
 	}
 }
 

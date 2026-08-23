@@ -436,6 +436,48 @@ func TestActivateSettingsRowByClickBounds(t *testing.T) {
 	}
 }
 
+// TestOutputDirRowOpensFolderPicker: Enter on the "Output dir" row opens the
+// snap/pickers folder picker, Esc closes it without touching the config, and
+// Ctrl+S commits the browsed directory into pprof.OutputDir.
+func TestOutputDirRowOpensFolderPicker(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m.switchTab(debugTabSettings)
+	m.settingsCursor = int(settingsRowOutputDir)
+	orig := m.pprof.OutputDir
+
+	if cmd := m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+		t.Fatal("opening the folder picker must return its Init command")
+	}
+	if m.dirPicker == nil {
+		t.Fatal("Enter on the Output dir row must open the folder picker")
+	}
+
+	// Esc aborts: the picker closes, the configured directory is unchanged.
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.dirPicker != nil {
+		t.Fatal("Esc must close the folder picker")
+	}
+	if m.pprof.OutputDir != orig {
+		t.Fatalf("canceled picker changed OutputDir to %q", m.pprof.OutputDir)
+	}
+
+	// Reopen and commit the browsed directory with Ctrl+S.
+	_ = m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.dirPicker == nil {
+		t.Fatal("picker must reopen")
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	if m.dirPicker != nil {
+		t.Fatal("Ctrl+S must select the browsed directory and close the picker")
+	}
+	if m.pprof.OutputDir == "" {
+		t.Fatal("committed picker left OutputDir empty")
+	}
+}
+
 // TestSelectTabByXMissReturnsFalse asserts a click outside every tab range is
 // reported as a miss.
 func TestSelectTabByXMissReturnsFalse(t *testing.T) {

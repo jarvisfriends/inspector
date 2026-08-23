@@ -36,8 +36,46 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (a app) View() tea.View {
 	v := a.ins.View()
+	// Standalone runs never enabled mouse reporting, so the inspector's own
+	// OnMouse handler (tab clicks, wheel tab/row scrolling, settings-row
+	// activation) was unreachable outside a host app. Cell-motion mode is
+	// what tui-base's program runs with.
+	v.MouseMode = tea.MouseModeCellMotion
+	if inner := v.OnMouse; inner != nil {
+		v.OnMouse = func(mm tea.MouseMsg) tea.Cmd {
+			// The inspector's hit zones are content-relative: its host
+			// subtracts the overlay origin plus one border cell (see
+			// tui-base's inspectorOverlay.OverlayMouse). Standalone, the view
+			// sits at 0,0, so only the border cell needs removing.
+			return inner(shiftMouse(mm, -1, -1))
+		}
+	}
 	v.AltScreen = true
 	return v
+}
+
+// shiftMouse translates a pointer event so the inspector sees coordinates
+// relative to its content area rather than the terminal.
+func shiftMouse(mm tea.MouseMsg, dx, dy int) tea.MouseMsg {
+	switch e := mm.(type) {
+	case tea.MouseClickMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	case tea.MouseReleaseMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	case tea.MouseWheelMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	case tea.MouseMotionMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	}
+	return mm
 }
 
 func main() {

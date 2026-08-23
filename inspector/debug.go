@@ -32,6 +32,7 @@ import (
 	"github.com/jarvisfriends/snap/gate"
 	"github.com/jarvisfriends/snap/notifications"
 	"github.com/jarvisfriends/snap/page"
+	"github.com/jarvisfriends/snap/pickers"
 	"github.com/jarvisfriends/snap/styles"
 	tint "github.com/lrstanley/bubbletint/v2"
 	"golang.org/x/text/language"
@@ -223,7 +224,7 @@ const (
 	settingsRowPprofToolAddr                              // 10
 	settingsRowPprofViewMode                              // 11
 	settingsRowCPUSecs                                    // 12
-	settingsRowOutputDir                                  // 13 — read-only display
+	settingsRowOutputDir                                  // 13 — Enter opens the folder picker
 	settingsRowWriteHeap                                  // 14
 	settingsRowCaptureCPU                                 // 15
 	settingsRowBuiltinHeader                              // 16 — SectionOnly
@@ -364,6 +365,13 @@ type InspectorModel struct {
 	linkSummary     func() string
 	pprof           pprofConfig
 	settingsMessage string
+
+	// dirPicker is the modal folder picker (snap/pickers) opened from the
+	// Settings tab's "Output dir" row. While non-nil it owns keyboard input.
+	// dirPickerMouse is the picker view's mouse handler, recorded at render
+	// time so OnMouse can forward section-relative pointer events to it.
+	dirPicker      *pickers.DirPicker
+	dirPickerMouse func(tea.MouseMsg) tea.Cmd
 
 	// Per-tab scrolling and mouse-hit metadata.
 	tabScrollY     map[debugTab]int
@@ -637,13 +645,66 @@ func (m *InspectorModel) activateSettingsRowByClick(localY int) tea.Cmd {
 		return nil
 	}
 	line := m.sectionViewport.YOffset() + (localY - m.sectionOriginY)
-	if line < 0 || line >= len(items) {
+	row := m.settingsRowForLine(items, line)
+	if row < 0 {
 		return nil
 	}
-	m.settingsCursor = line
+	if items[row].SectionOnly {
+		return nil // headers are labels, not click targets
+	}
+	m.settingsCursor = row
 	m.ensureSettingsCursorVisible(len(items))
 	m.dirty = true
 	return m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+}
+
+// settingsRowForLine maps a rendered line inside the settings section back to
+// its settingsRows index. The rendered layout is NOT 1:1 with the row slice:
+// the selected row grows a help line beneath it (see renderSettingsSection),
+// which used to shift every click below the cursor onto the wrong row — the
+// reason "open in browser" rows didn't open on click. Clicking the help line
+// counts as its row; lines past the last row (the settingsMessage) return -1.
+func (m *InspectorModel) settingsRowForLine(items []debugSettingRow, line int) int {
+	if line < 0 {
+		return -1
+	}
+	cur := 0
+	for i, row := range items {
+		lines := 1
+		if i == m.settingsCursor && !row.SectionOnly && row.Help != "" {
+			lines = 2 // the row plus its help line
+		}
+		if line < cur+lines {
+			return i
+		}
+		cur += lines
+	}
+	return -1
+}
+
+// resolveDirPicker closes the folder picker once it reports Done or Aborted,
+// committing the chosen directory to the pprof config on Done.
+func (m *InspectorModel) resolveDirPicker() {
+	p := m.dirPicker
+	if p == nil {
+		return
+	}
+	switch {
+	case p.Aborted:
+		m.dirPicker = nil
+		m.dirPickerMouse = nil
+		m.settingsMessage = "folder selection canceled"
+	case p.Done:
+		m.dirPicker = nil
+		m.dirPickerMouse = nil
+		if v := p.Value(); v != "" {
+			m.pprof.OutputDir = v
+			m.settingsMessage = "profile output dir: " + v
+		}
+	default:
+		return
+	}
+	m.dirty = true
 }
 
 func (m *InspectorModel) selectTabByX(localX int) bool {
@@ -787,6 +848,25 @@ func (m *InspectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Record every message the inspector sees (deduped/stacked) so the log pane
 	// reflects live traffic. Silent, high-frequency messages return early.
 	preCmd := m.LogMessageForDebugging(msg)
+
+	// A modal folder picker (Settings → Output dir) owns the keyboard while
+	// open. Every message is offered to it first — its directory listings
+	// arrive as picker-internal messages the inspector cannot name — then
+	// keys stop here while everything else continues to normal handling.
+	if m.dirPicker != nil {
+		model, pcmd := m.dirPicker.Update(msg)
+		if p, ok := model.(*pickers.DirPicker); ok {
+			m.dirPicker = p
+		}
+		m.resolveDirPicker()
+		m.dirty = true // listings and cursor moves arrive with nil cmds
+		if _, isKey := msg.(tea.KeyMsg); isKey {
+			return m, tea.Batch(preCmd, pcmd)
+		}
+		if pcmd != nil {
+			return m, tea.Batch(preCmd, pcmd)
+		}
+	}
 	switch msg := msg.(type) {
 	case latestValueFlushMsg:
 		m.latestValueFlushTimer = false
@@ -1346,9 +1426,39 @@ func (m *InspectorModel) View() tea.View {
 		sectionContent = m.sectionViewport.View()
 	}
 
+	// An open folder picker replaces the settings section wholesale (it is
+	// modal): it manages its own scrolling, so it bypasses the viewport. Its
+	// view's OnMouse is recorded for the pointer routing below.
+	if m.activeTab == debugTabSettings && m.dirPicker != nil {
+		m.dirPicker.Width, m.dirPicker.Height = availW, m.sectionHeight
+		pv := m.dirPicker.View()
+		m.dirPickerMouse = pv.OnMouse
+		sectionContent = lipgloss.NewStyle().
+			Width(availW).Height(m.sectionHeight).
+			MaxHeight(m.sectionHeight).Render(pv.Content)
+	} else {
+		m.dirPickerMouse = nil
+	}
+
 	m.view.BackgroundColor = c.Styles.TextOnBg.GetBackground()
 	m.view.ForegroundColor = c.Styles.TextOnBg.GetForeground()
 	m.view.OnMouse = func(mm tea.MouseMsg) tea.Cmd {
+		// While the folder picker is open it owns every pointer event in the
+		// section area (clicks, wheel navigation, drag, hover), translated to
+		// picker-local coordinates. Tab-bar clicks stay with the inspector.
+		if m.dirPicker != nil && m.dirPickerMouse != nil {
+			me := mm.Mouse()
+			if rel, ok := mm.(tea.MouseReleaseMsg); ok && rel.Mouse().Button == tea.MouseLeft &&
+				me.Y >= m.tabsOriginY && me.Y < m.tabsOriginY+m.tabsHeight {
+				m.selectTabByX(me.X)
+				return func() tea.Msg { return mm }
+			}
+			if me.Y >= m.sectionOriginY {
+				m.dirty = true
+				return m.dirPickerMouse(shiftMouseY(mm, -m.sectionOriginY))
+			}
+			return nil
+		}
 		if wheel, ok := mm.(tea.MouseWheelMsg); ok {
 			m.handleWheel(wheel.Mouse())
 			return nil
@@ -1741,7 +1851,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 		{
 			Field: "Output dir",
 			Value: m.pprof.OutputDir,
-			Help:  "Heap/CPU snapshot files are written here. Analyze with: go tool pprof <file>",
+			Help:  "Heap/CPU snapshot files are written here. Enter opens a folder picker (Space selects the highlighted folder, Ctrl+S the browsed one).",
 		},
 		// 13-14: capture actions (no server required)
 		{
@@ -1969,7 +2079,7 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 		}
 	case settingsRowCPUSecs:
 		m.pprof.CPUCaptureSecs = max(1, m.pprof.CPUCaptureSecs+1)
-	// settingsRowOutputDir: read-only display, no action
+	// settingsRowOutputDir: Enter opens the snap/pickers folder picker
 	// --- capture actions ---
 	case settingsRowWriteHeap:
 		m.dirty = true
@@ -2038,8 +2148,15 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 	case settingsRowGotoolLiveCPU:
 		m.dirty = true
 		return m.openGoToolPprofLiveCPUCmd()
-	case settingsRowOutputDir,
-		settingsRowBuiltinHeader,
+	case settingsRowOutputDir:
+		// Open snap's folder picker over the section; resolveDirPicker
+		// commits the choice back into pprof.OutputDir.
+		p := pickers.NewDirPicker(m.pprof.OutputDir)
+		p.Styles = styles.PickerStyles(m.Colors())
+		m.dirPicker = p
+		m.dirty = true
+		return p.Init()
+	case settingsRowBuiltinHeader,
 		settingsRowGotoolHeader,
 		settingsRowServerState,
 		settingsRowFeatureFlagsHeader:
@@ -2295,6 +2412,26 @@ func (m *InspectorModel) openGoToolPprofLiveCPUCmd() tea.Cmd {
 			),
 		}
 	}
+}
+
+// shiftMouseY translates a pointer event vertically so a child rendered at a
+// Y offset (the folder picker in the section area) sees local coordinates.
+func shiftMouseY(mm tea.MouseMsg, dy int) tea.MouseMsg {
+	switch e := mm.(type) {
+	case tea.MouseClickMsg:
+		e.Y += dy
+		return e
+	case tea.MouseReleaseMsg:
+		e.Y += dy
+		return e
+	case tea.MouseWheelMsg:
+		e.Y += dy
+		return e
+	case tea.MouseMotionMsg:
+		e.Y += dy
+		return e
+	}
+	return mm
 }
 
 func openBrowserCmd(url string) tea.Cmd {
