@@ -2171,7 +2171,19 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 	case settingsRowBuiltinHeader,
 		settingsRowGotoolHeader,
 		settingsRowServerState,
-		settingsRowFeatureFlagsHeader:
+		settingsRowFeatureFlagsHeader,
+		// The browser-endpoint rows are resolved by pprofEndpointPath before
+		// this switch and cannot reach here; listed to satisfy `exhaustive`.
+		settingsRowPprofIndex,
+		settingsRowHeapDebug1,
+		settingsRowHeapDebug2,
+		settingsRowGoroutineDebug1,
+		settingsRowGoroutineDebug2,
+		settingsRowAllocsDebug1,
+		settingsRowBlockDebug1,
+		settingsRowMutexDebug1,
+		settingsRowCPUStream,
+		settingsRowTraceStream:
 		// read-only display rows and section headers — no interactive action
 	default:
 		// Rows past the fixed set are the dynamic Feature Flags toggles (one
