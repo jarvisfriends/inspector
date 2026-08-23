@@ -659,27 +659,16 @@ func (m *InspectorModel) activateSettingsRowByClick(localY int) tea.Cmd {
 }
 
 // settingsRowForLine maps a rendered line inside the settings section back to
-// its settingsRows index. The rendered layout is NOT 1:1 with the row slice:
-// the selected row grows a help line beneath it (see renderSettingsSection),
-// which used to shift every click below the cursor onto the wrong row — the
-// reason "open in browser" rows didn't open on click. Clicking the help line
-// counts as its row; lines past the last row (the settingsMessage) return -1.
+// its settingsRows index, or -1 outside the list. The layout is exactly one
+// line per row — the selected row's help and the settings message render in
+// the pinned footer, never inside the list. (The help line used to render
+// under the selected row, shifting every click below the cursor onto the
+// wrong row — the reason "open in browser" rows didn't open on click.)
 func (m *InspectorModel) settingsRowForLine(items []debugSettingRow, line int) int {
-	if line < 0 {
+	if line < 0 || line >= len(items) {
 		return -1
 	}
-	cur := 0
-	for i, row := range items {
-		lines := 1
-		if i == m.settingsCursor && !row.SectionOnly && row.Help != "" {
-			lines = 2 // the row plus its help line
-		}
-		if line < cur+lines {
-			return i
-		}
-		cur += lines
-	}
-	return -1
+	return line
 }
 
 // dirPickerUpdate routes one message to the open folder picker. Every message
@@ -1395,23 +1384,20 @@ func (m *InspectorModel) View() tea.View {
 		logContent,
 	)
 
-	titleText := sectionTitle + " (Inspector)"
-	titleLine := lipgloss.PlaceHorizontal(
-		availW,
-		lipgloss.Center,
-		c.Styles.Title.Bold(true).Render(titleText),
-	)
-	sep := c.Styles.Title.Render(strings.Repeat("─", availW))
-	tabsLine := ansi.Truncate(rawTabsLine, availW, "…")
+	// Layout: tabs (with the right-aligned brand) on top, the section in the
+	// middle, and a pinned footer line (section title + contextual help or
+	// status message) at the bottom. The old centered "<Title> (Inspector)"
+	// line and its full-width separator spent two content lines duplicating
+	// what the highlighted tab already said.
+	tabsLine := m.tabsLineWithBrand(c, rawTabsLine, availW)
 
-	topH := lipgloss.Height(titleLine) + lipgloss.Height(tabsLine) + lipgloss.Height(sep)
-	m.sectionOriginX = 0
-	// tabsOriginY: the inner content layout is titleLine → sep → tabsLine, so
-	// tabs start after both title AND separator lines.
-	m.tabsOriginY = lipgloss.Height(titleLine) + lipgloss.Height(sep)
+	m.sectionOriginX = debugBorderPaddingX
+	m.tabsOriginY = 0
 	m.tabsHeight = lipgloss.Height(tabsLine)
+	topH := m.tabsHeight
 	m.sectionOriginY = topH
-	m.sectionHeight = max(1, m.Height()-topH-frameV)
+	const footerH = 1
+	m.sectionHeight = max(1, m.Height()-topH-footerH-frameV)
 	m.logViewport.SetWidth(max(availW, 1))
 	m.logViewport.SetHeight(m.sectionHeight)
 	m.logViewport.SetContent(logContent)
@@ -1463,7 +1449,7 @@ func (m *InspectorModel) View() tea.View {
 			}
 			if me.Y >= m.sectionOriginY {
 				m.dirty = true
-				return m.dirPickerMouse(shiftMouseY(mm, -m.sectionOriginY))
+				return m.dirPickerMouse(shiftMouseBy(mm, -m.sectionOriginX, -m.sectionOriginY))
 			}
 			return nil
 		}
@@ -1485,10 +1471,9 @@ func (m *InspectorModel) View() tea.View {
 	}
 	inner := lipgloss.JoinVertical(
 		lipgloss.Left,
-		titleLine,
-		sep,
 		tabsLine,
 		sectionContent,
+		m.buildFooterLine(c, sectionTitle, availW),
 	)
 
 	m.view.SetContent(borderStyle.Render(inner))
@@ -1756,16 +1741,14 @@ func (m *InspectorModel) renderSettingsSection(c *styles.AppStyle) string {
 			line := indicatorStyle.Render(prefix) + selectedField.Render(field) +
 				spaceStyle.Render("   ") + selectedValue.Render(value)
 			out = append(out, selectedRow.Render(line))
-			if row.Help != "" {
-				out = append(out, c.Styles.Dim.Render("   "+row.Help))
-			}
 			continue
 		}
 		out = append(out, "  "+normalField.Render(field)+"   "+normalValue.Render(value))
 	}
-	if m.settingsMessage != "" {
-		out = append(out, "", c.Styles.Subtitle.Render(m.settingsMessage))
-	}
+	// The selected row's help and the transient settings message render in
+	// the pinned footer (buildFooterLine), not inside the list: the list
+	// stays a stable one-line-per-row surface (click mapping needs no
+	// layout arithmetic) and the message can never scroll off-screen.
 
 	return lipgloss.JoinVertical(lipgloss.Left, out...)
 }
@@ -2404,20 +2387,25 @@ func (m *InspectorModel) pprofEndpointPath(row settingsRowIndex) (path string, o
 	return path, ok
 }
 
-// shiftMouseY translates a pointer event vertically so a child rendered at a
-// Y offset (the folder picker in the section area) sees local coordinates.
-func shiftMouseY(mm tea.MouseMsg, dy int) tea.MouseMsg {
+// shiftMouseBy translates a pointer event so a child rendered at an offset
+// (the folder picker in the section area) sees local coordinates — the same
+// normalization the tab hit ranges bake in via debugBorderPaddingX.
+func shiftMouseBy(mm tea.MouseMsg, dx, dy int) tea.MouseMsg {
 	switch e := mm.(type) {
 	case tea.MouseClickMsg:
+		e.X += dx
 		e.Y += dy
 		return e
 	case tea.MouseReleaseMsg:
+		e.X += dx
 		e.Y += dy
 		return e
 	case tea.MouseWheelMsg:
+		e.X += dx
 		e.Y += dy
 		return e
 	case tea.MouseMotionMsg:
+		e.X += dx
 		e.Y += dy
 		return e
 	}

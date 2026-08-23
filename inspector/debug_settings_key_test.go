@@ -337,23 +337,41 @@ func TestSettingsRowsShowEnabledGate(t *testing.T) {
 	}
 }
 
-// TestRenderSettingsSectionShowsMessageAndActionPrefix asserts the section
-// renders the transient settings message and uses the ↵ indicator when an
-// action-only row is selected.
+// TestRenderSettingsSectionShowsMessageAndActionPrefix asserts the ↵
+// indicator marks a selected action-only row, and that the transient
+// settings message renders in the pinned FOOTER — not inside the list, where
+// it used to sit below the last row and scroll off-screen.
 func TestRenderSettingsSectionShowsMessageAndActionPrefix(t *testing.T) {
 	t.Parallel()
 
 	m := New()
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m.switchTab(debugTabSettings)
 	m.settingsMessage = "snapshot saved somewhere"
 	m.settingsCursor = int(settingsRowWriteHeap) // ActionOnly row
 
 	out := m.renderSettingsSection(styles.Active())
-	if !strings.Contains(out, "snapshot saved somewhere") {
-		t.Error("settings section missing the settings message")
+	if strings.Contains(out, "snapshot saved somewhere") {
+		t.Error("settings message must live in the footer, not the list")
 	}
 	if !strings.Contains(out, "↵") {
 		t.Error("selected action row should use the ↵ indicator")
+	}
+	footer := m.buildFooterLine(styles.Active(), "Debug Settings", 100)
+	if !strings.Contains(footer, "snapshot saved somewhere") {
+		t.Error("footer missing the settings message")
+	}
+
+	// Without a message the footer surfaces the selected row's help instead.
+	m.settingsMessage = ""
+	m.settingsCursor = 0
+	rows := m.settingsRows()
+	if rows[0].Help == "" {
+		t.Fatal("test premise: row 0 carries help")
+	}
+	footer = m.buildFooterLine(styles.Active(), "Debug Settings", 200)
+	if !strings.Contains(footer, rows[0].Help) {
+		t.Errorf("footer = %q; want row 0 help", footer)
 	}
 }
 

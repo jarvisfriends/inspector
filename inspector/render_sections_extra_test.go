@@ -50,8 +50,13 @@ func TestDisksTabRendersViaView(t *testing.T) {
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m.switchTab(debugTabDisks)
 	v := m.View()
-	if !strings.Contains(v.Content, "Disks (Inspector)") {
+	// The section title lives in the pinned footer; the brand rides the tab
+	// bar's right edge (the old centered "<Title> (Inspector)" line is gone).
+	if !strings.Contains(v.Content, "Disks") {
 		t.Fatalf("disks tab title missing from view")
+	}
+	if !strings.Contains(v.Content, "Inspector") {
+		t.Fatalf("brand missing from the tab bar")
 	}
 }
 

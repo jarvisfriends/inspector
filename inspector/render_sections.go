@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/dustin/go-humanize"
 
 	"github.com/jarvisfriends/snap/styles"
@@ -414,6 +415,52 @@ func (m *InspectorModel) buildTabsLine(c *styles.AppStyle) string {
 	}
 	m.tabRanges = tabRanges
 	return lipgloss.JoinHorizontal(lipgloss.Left, tabParts...)
+}
+
+// tabsLineWithBrand right-aligns the "Inspector" brand on the tab bar row —
+// the branding the old centered title line used to carry. The brand is
+// dropped before any tab is: when the tabs already fill the row, the row is
+// just the (truncated) tabs.
+func (m *InspectorModel) tabsLineWithBrand(c *styles.AppStyle, raw string, availW int) string {
+	line := ansi.Truncate(raw, availW, "…")
+	brand := c.Styles.Title.Bold(true).Render("Inspector")
+	pad := availW - lipgloss.Width(line) - lipgloss.Width(brand)
+	if pad < 2 {
+		return line
+	}
+	return line + strings.Repeat(" ", pad) + brand
+}
+
+// buildFooterLine renders the pinned bottom line: the section title on the
+// left; on the right, the settings status message (pprof action feedback,
+// picker results) or, absent one, the selected settings row's help. Both
+// used to live inside the scrolling settings list — the message below the
+// LAST row (off-screen whenever the list was scrolled up) and the help under
+// the selected row, shifting every row beneath it.
+func (m *InspectorModel) buildFooterLine(c *styles.AppStyle, title string, availW int) string {
+	left := c.Styles.Subtitle.Bold(true).Render(title)
+	var right string
+	if m.activeTab == debugTabSettings {
+		switch items := m.settingsRows(); {
+		case m.settingsMessage != "":
+			right = c.Styles.Subtitle.Render(m.settingsMessage)
+		case len(items) > 0:
+			row := items[max(0, min(m.settingsCursor, len(items)-1))]
+			if row.Help != "" {
+				right = c.Styles.Dim.Render(row.Help)
+			}
+		}
+	}
+	if right == "" {
+		return ansi.Truncate(left, availW, "…")
+	}
+	pad := availW - lipgloss.Width(left) - lipgloss.Width(right)
+	if pad < 2 {
+		// Not enough room for both: the contextual text wins — the title is
+		// also readable from the highlighted tab.
+		return ansi.Truncate(right, availW, "…")
+	}
+	return left + strings.Repeat(" ", pad) + right
 }
 
 func (m *InspectorModel) sectionForActiveTab(
