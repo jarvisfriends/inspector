@@ -41,7 +41,11 @@ jobs:
         with:
           go-version: '1.27.x'
       - name: Initialize CodeQL
+<<<<<<< HEAD
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+=======
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+>>>>>>> c3a5063 (Refactor CodeQL workflow for Go analysis)
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
