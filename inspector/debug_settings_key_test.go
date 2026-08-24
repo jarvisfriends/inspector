@@ -225,21 +225,65 @@ func TestHandleSettingsKeyActionRows(t *testing.T) {
 	}
 }
 
-// TestHandleSettingsKeyReadOnlyRows asserts headers and display rows are
-// no-ops on Enter.
+// TestHandleSettingsKeyReadOnlyRows asserts display rows are no-ops on
+// Enter. (Headers toggle collapse and OutputDir opens the folder picker —
+// both covered by their own tests.)
 func TestHandleSettingsKeyReadOnlyRows(t *testing.T) {
 	t.Parallel()
 
 	m := New()
-	for _, row := range []settingsRowIndex{
-		settingsRowOutputDir,
-		settingsRowBuiltinHeader,
-		settingsRowGotoolHeader,
-		settingsRowServerState,
-	} {
-		if cmd := enterOn(m, row); cmd != nil {
-			t.Errorf("row %d: read-only row returned a cmd", row)
-		}
+	if cmd := enterOn(m, settingsRowServerState); cmd != nil {
+		t.Error("server-state display row returned a cmd")
+	}
+}
+
+// TestHeaderEnterTogglesCollapse: Enter on a SectionOnly header flips its
+// collapsed state, hiding and re-showing the section's body rows.
+func TestHeaderEnterTogglesCollapse(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	items := m.settingsRows()
+	if !m.collapsedSections[settingsRowBuiltinHeader] {
+		t.Fatal("browser-endpoint section should start collapsed")
+	}
+	if m.settingsRowShown(items, int(settingsRowHeapDebug1)) {
+		t.Fatal("collapsed section body row should be hidden")
+	}
+
+	if cmd := enterOn(m, settingsRowBuiltinHeader); cmd != nil {
+		t.Fatal("header toggle must not return a cmd")
+	}
+	if m.collapsedSections[settingsRowBuiltinHeader] {
+		t.Fatal("Enter on the header should expand the section")
+	}
+	if !m.settingsRowShown(items, int(settingsRowHeapDebug1)) {
+		t.Fatal("expanded section body row should be visible")
+	}
+
+	_ = enterOn(m, settingsRowBuiltinHeader)
+	if !m.collapsedSections[settingsRowBuiltinHeader] {
+		t.Fatal("second Enter should collapse the section again")
+	}
+}
+
+// TestMoveSettingsCursorSkipsCollapsedRows: with the pprof sections
+// collapsed, Down from the section header lands on the NEXT header, not on a
+// hidden body row.
+func TestMoveSettingsCursorSkipsCollapsedRows(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	items := m.settingsRows()
+	m.settingsCursor = int(settingsRowBuiltinHeader)
+	m.moveSettingsCursor(items, 1)
+	if m.settingsCursor != int(settingsRowGotoolHeader) {
+		t.Fatalf("Down from a collapsed header landed on %d; want the next header %d",
+			m.settingsCursor, int(settingsRowGotoolHeader))
+	}
+	m.moveSettingsCursor(items, -1)
+	if m.settingsCursor != int(settingsRowBuiltinHeader) {
+		t.Fatalf("Up landed on %d; want %d", m.settingsCursor, int(settingsRowBuiltinHeader))
 	}
 }
 
@@ -263,11 +307,14 @@ func TestHandleSettingsKeyCursorAndOtherKeys(t *testing.T) {
 		t.Fatalf("Up moved cursor to %d; want 0", m.settingsCursor)
 	}
 
-	last := len(m.settingsRows()) - 1
+	// Cursor movement walks VISIBLE rows: the last stop is the last visible
+	// row (the pprof sections start collapsed), and Down there clamps.
+	vis := m.visibleSettingsRows(m.settingsRows())
+	last := vis[len(vis)-1]
 	m.settingsCursor = last
 	_ = m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	if m.settingsCursor != last {
-		t.Fatalf("Down at last row moved cursor to %d; want %d", m.settingsCursor, last)
+		t.Fatalf("Down at last visible row moved cursor to %d; want %d", m.settingsCursor, last)
 	}
 
 	// Any other key marks the view dirty but performs no action.
@@ -337,23 +384,41 @@ func TestSettingsRowsShowEnabledGate(t *testing.T) {
 	}
 }
 
-// TestRenderSettingsSectionShowsMessageAndActionPrefix asserts the section
-// renders the transient settings message and uses the ↵ indicator when an
-// action-only row is selected.
+// TestRenderSettingsSectionShowsMessageAndActionPrefix asserts the ↵
+// indicator marks a selected action-only row, and that the transient
+// settings message renders in the pinned FOOTER — not inside the list, where
+// it used to sit below the last row and scroll off-screen.
 func TestRenderSettingsSectionShowsMessageAndActionPrefix(t *testing.T) {
 	t.Parallel()
 
 	m := New()
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m.switchTab(debugTabSettings)
 	m.settingsMessage = "snapshot saved somewhere"
 	m.settingsCursor = int(settingsRowWriteHeap) // ActionOnly row
 
 	out := m.renderSettingsSection(styles.Active())
-	if !strings.Contains(out, "snapshot saved somewhere") {
-		t.Error("settings section missing the settings message")
+	if strings.Contains(out, "snapshot saved somewhere") {
+		t.Error("settings message must live in the footer, not the list")
 	}
 	if !strings.Contains(out, "↵") {
 		t.Error("selected action row should use the ↵ indicator")
+	}
+	footer := m.buildFooterLine(styles.Active(), "Debug Settings", 100)
+	if !strings.Contains(footer, "snapshot saved somewhere") {
+		t.Error("footer missing the settings message")
+	}
+
+	// Without a message the footer surfaces the selected row's help instead.
+	m.settingsMessage = ""
+	m.settingsCursor = 0
+	rows := m.settingsRows()
+	if rows[0].Help == "" {
+		t.Fatal("test premise: row 0 carries help")
+	}
+	footer = m.buildFooterLine(styles.Active(), "Debug Settings", 200)
+	if !strings.Contains(footer, rows[0].Help) {
+		t.Errorf("footer = %q; want row 0 help", footer)
 	}
 }
 
@@ -433,6 +498,48 @@ func TestActivateSettingsRowByClickBounds(t *testing.T) {
 	_ = m.activateSettingsRowByClick(m.sectionOriginY + len(m.settingsRows()) + 5)
 	if m.settingsCursor != before {
 		t.Fatal("click past the last row must not move the cursor")
+	}
+}
+
+// TestOutputDirRowOpensFolderPicker: Enter on the "Output dir" row opens the
+// snap/pickers folder picker, Esc closes it without touching the config, and
+// Ctrl+S commits the browsed directory into pprof.OutputDir.
+func TestOutputDirRowOpensFolderPicker(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m.switchTab(debugTabSettings)
+	m.settingsCursor = int(settingsRowOutputDir)
+	orig := m.pprof.OutputDir
+
+	if cmd := m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+		t.Fatal("opening the folder picker must return its Init command")
+	}
+	if m.dirPicker == nil {
+		t.Fatal("Enter on the Output dir row must open the folder picker")
+	}
+
+	// Esc aborts: the picker closes, the configured directory is unchanged.
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.dirPicker != nil {
+		t.Fatal("Esc must close the folder picker")
+	}
+	if m.pprof.OutputDir != orig {
+		t.Fatalf("canceled picker changed OutputDir to %q", m.pprof.OutputDir)
+	}
+
+	// Reopen and commit the browsed directory with Ctrl+S.
+	_ = m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.dirPicker == nil {
+		t.Fatal("picker must reopen")
+	}
+	_, _ = m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	if m.dirPicker != nil {
+		t.Fatal("Ctrl+S must select the browsed directory and close the picker")
+	}
+	if m.pprof.OutputDir == "" {
+		t.Fatal("committed picker left OutputDir empty")
 	}
 }
 

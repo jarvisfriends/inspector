@@ -9,6 +9,7 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/jarvisfriends/snap/styles"
 )
@@ -50,8 +51,13 @@ func TestDisksTabRendersViaView(t *testing.T) {
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m.switchTab(debugTabDisks)
 	v := m.View()
-	if !strings.Contains(v.Content, "Disks (Inspector)") {
+	// The section title lives in the pinned footer; the brand rides the tab
+	// bar's right edge (the old centered "<Title> (Inspector)" line is gone).
+	if !strings.Contains(v.Content, "Disks") {
 		t.Fatalf("disks tab title missing from view")
+	}
+	if !strings.Contains(v.Content, "Inspector") {
+		t.Fatalf("brand missing from the tab bar")
 	}
 }
 
@@ -90,12 +96,16 @@ func TestSectionForActiveTabAllBranches(t *testing.T) {
 		}
 	}
 
-	// Log tab title gains the filter suffix when WARN+ only is active.
-	m.logWarnPlus = true
+	// Log tab title gains the filter suffix when a level floor is active.
+	m.logLevelFloor = logLevelRankWarn
 	if title, _ := section(debugTabLog); !strings.Contains(title, "[WARN+ only]") {
 		t.Errorf("filtered log title = %q; want WARN+ suffix", title)
 	}
-	m.logWarnPlus = false
+	m.logLevelFloor = 1
+	if title, _ := section(debugTabLog); !strings.Contains(title, "[INFO+ only]") {
+		t.Errorf("filtered log title = %q; want INFO+ suffix", title)
+	}
+	m.logLevelFloor = 0
 
 	// Accessibility with a live panel: panel content is embedded.
 	m.switchTab(debugTabAccessibility) // toggles the panel visible
@@ -124,8 +134,8 @@ func TestSectionForActiveTabAllBranches(t *testing.T) {
 	}
 }
 
-// TestRenderInputSectionFlatFallback asserts narrow widths fall back to the
-// flat key/value list and mark the input table inactive.
+// TestRenderInputSectionFlatFallback asserts the input grid reflows at
+// narrow widths without overflowing and never claims a table cursor.
 func TestRenderInputSectionFlatFallback(t *testing.T) {
 	t.Parallel()
 
@@ -133,16 +143,20 @@ func TestRenderInputSectionFlatFallback(t *testing.T) {
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 	c := styles.Active()
 	rows := m.buildInputRows(c)
-	m.updateInputColumnWidths(rows)
 
-	out := m.renderInputSection(c, m.baseTableStyles(c), rows, 30)
+	out := m.renderInputSection(c, rows, 30)
 	if m.tableActive[debugTabInput] {
-		t.Fatal("narrow render must mark the input table inactive")
+		t.Fatal("input renders as a grid; it must never mark a table active")
 	}
-	// The narrow key column wraps long metric names, so probe short ones.
-	for _, want := range []string{"Button", "Motion", "Wheel"} {
+	for i, line := range strings.Split(out, "\n") {
+		if lipgloss.Width(line) > 30 {
+			t.Errorf("input grid line %d overflows: width %d > 30", i, lipgloss.Width(line))
+		}
+	}
+	// The narrow key column truncates long metric names, so probe short ones.
+	for _, want := range []string{"Button", "Mod"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("flat input render missing %q:\n%s", want, out)
+			t.Fatalf("input grid missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -156,7 +170,7 @@ func TestRenderLogContentEmptyStates(t *testing.T) {
 	if got := m.renderLogContent(c); !strings.Contains(got, "No messages intercepted yet") {
 		t.Errorf("empty log = %q; want placeholder", got)
 	}
-	m.logWarnPlus = true
+	m.logLevelFloor = logLevelRankWarn
 	if got := m.renderLogContent(c); !strings.Contains(got, "No WARN+ messages") {
 		t.Errorf("empty filtered log = %q; want WARN+ placeholder", got)
 	}
@@ -188,24 +202,24 @@ func TestColorStatSeverityThresholds(t *testing.T) {
 }
 
 // TestRenderRuntimeFlatSkipsEmptyKeys asserts pairs with empty metric names
-// are dropped from the flat fallback layout.
+// are dropped when the legacy row shape is flattened for the grid.
 func TestRenderRuntimeFlatSkipsEmptyKeys(t *testing.T) {
 	t.Parallel()
 
 	c := styles.Active()
-	out := renderRuntimeFlat(
-		[]table.Row{
-			{"Metric A", "1", "", "hidden", "Metric B", "2"},
-		},
+	out := renderKVGrid(
 		c,
+		flattenPairs([]table.Row{
+			{"Metric A", "1", "", "hidden", "Metric B", "2"},
+		}),
 		60,
 	)
 	if strings.Contains(out, "hidden") {
-		t.Fatalf("flat render kept a pair with an empty key:\n%s", out)
+		t.Fatalf("grid kept a pair with an empty key:\n%s", out)
 	}
 	for _, want := range []string{"Metric A", "Metric B"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("flat render missing %q", want)
+			t.Errorf("grid missing %q", want)
 		}
 	}
 }

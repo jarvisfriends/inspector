@@ -167,19 +167,20 @@ func TestUpdateSettingsTabKeyRouting(t *testing.T) {
 }
 
 // TestUpdateTableTabNavigationKeys covers the table-cursor routing for the
-// full navigation key set on a table tab.
+// full navigation key set on the one remaining table tab (Disks).
 func TestUpdateTableTabNavigationKeys(t *testing.T) {
 	t.Parallel()
 
 	m := New()
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 300, Height: 40})
-	_ = m.View() // marks the runtime table active
+	m.switchTab(debugTabDisks)
+	_ = m.View() // marks the disk table active
 
 	for _, code := range []rune{tea.KeyDown, tea.KeyUp, tea.KeyPgDown, tea.KeyPgUp, tea.KeyEnd, tea.KeyHome} {
 		_, _ = m.Update(tea.KeyPressMsg{Code: code})
 	}
-	if got := m.runtimeTbl.Cursor(); got != 0 {
-		t.Fatalf("runtime cursor = %d after Home; want 0", got)
+	if got := m.diskTbl.Cursor(); got != 0 {
+		t.Fatalf("disk cursor = %d after Home; want 0", got)
 	}
 }
 
@@ -429,13 +430,15 @@ func TestActiveDataTablePerTab(t *testing.T) {
 	m.setTableActive(debugTabDisks, true)
 	m.setTableActive(debugTabTerminal, true) // not a table tab: still nil
 
+	// Runtime and Input render key-value grids now: no table even when the
+	// (stale) active flag is set.
 	m.activeTab = debugTabRuntime
-	if m.activeDataTable() != &m.runtimeTbl {
-		t.Error("runtime tab should expose the runtime table")
+	if m.activeDataTable() != nil {
+		t.Error("runtime tab must not expose a table (grid rendering)")
 	}
 	m.activeTab = debugTabInput
-	if m.activeDataTable() != &m.inputDbgTbl {
-		t.Error("input tab should expose the input table")
+	if m.activeDataTable() != nil {
+		t.Error("input tab must not expose a table (grid rendering)")
 	}
 	m.activeTab = debugTabDisks
 	if m.activeDataTable() != &m.diskTbl {
@@ -514,15 +517,14 @@ func TestHandleWheelOnViewportTab(t *testing.T) {
 		t.Fatalf("wheel up scrolled to %d; want 0", got)
 	}
 
-	// Table tab: wheel-up moves the row cursor.
+	// Runtime is a key-value grid now: the wheel scrolls the section
+	// viewport (sized short so the grid is taller than the section).
 	m.switchTab(debugTabRuntime)
-	_, _ = m.Update(tea.WindowSizeMsg{Width: 300, Height: 40})
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	_ = m.View()
-	m.runtimeTbl.MoveDown(2)
-	before := m.runtimeTbl.Cursor()
-	m.handleWheel(tea.Mouse{Button: tea.MouseWheelUp})
-	if got := m.runtimeTbl.Cursor(); got != before-1 {
-		t.Fatalf("wheel up on table: cursor=%d; want %d", got, before-1)
+	m.handleWheel(tea.Mouse{Button: tea.MouseWheelDown})
+	if got := m.sectionViewport.YOffset(); got <= 0 {
+		t.Fatalf("wheel down on the runtime grid should scroll the viewport; offset=%d", got)
 	}
 }
 

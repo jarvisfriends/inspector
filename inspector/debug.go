@@ -32,6 +32,7 @@ import (
 	"github.com/jarvisfriends/snap/gate"
 	"github.com/jarvisfriends/snap/notifications"
 	"github.com/jarvisfriends/snap/page"
+	"github.com/jarvisfriends/snap/pickers"
 	"github.com/jarvisfriends/snap/styles"
 	tint "github.com/lrstanley/bubbletint/v2"
 	"golang.org/x/text/language"
@@ -62,8 +63,6 @@ const AccessibilityTabGate = "Inspector Accessibility Tab"
 const (
 	debugTabTitleAccessibility = "Accessibility"
 	pprofViewModeBuiltin       = "builtin"
-	settingsColMetric          = "Metric"
-	settingsColValue           = "Value"
 	settingsActionOpen         = "Open"
 	settingsActionRun          = "Run"
 	pprofKindSnapshot          = "snapshot"
@@ -97,7 +96,8 @@ type DebugKeyMap struct {
 	NotifyWarning key.Binding // fire a test warning notification
 	NotifyError   key.Binding // fire a test error notification
 	ExportLog     key.Binding // export inspector log to file
-	LevelFilter   key.Binding // toggle the Log tab's WARN+ only filter
+	LevelFilter   key.Binding // cycle the Log tab's level filter (all → INFO+ → WARN+)
+	LogDetail     key.Binding // toggle compact/expanded Log tab entries
 
 	// NextTab/PrevTab cycle the inspector tabs. The router syncs them with the
 	// application's NextPage/PreviousPage bindings (SetNavKeys) so switching
@@ -132,7 +132,8 @@ func DefaultDebugKeys() DebugKeyMap {
 			key.WithHelp("e", "test error notification"),
 		),
 		ExportLog:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "export log to file")),
-		LevelFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "filter WARN+ only")),
+		LevelFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "cycle level filter")),
+		LogDetail:   key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "expanded entries")),
 		NextTab: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "next tab"),
@@ -223,7 +224,7 @@ const (
 	settingsRowPprofToolAddr                              // 10
 	settingsRowPprofViewMode                              // 11
 	settingsRowCPUSecs                                    // 12
-	settingsRowOutputDir                                  // 13 — read-only display
+	settingsRowOutputDir                                  // 13 — Enter opens the folder picker
 	settingsRowWriteHeap                                  // 14
 	settingsRowCaptureCPU                                 // 15
 	settingsRowBuiltinHeader                              // 16 — SectionOnly
@@ -306,9 +307,13 @@ type InspectorModel struct {
 	sectionViewport viewport.Model
 	inputViewport   viewport.Model
 	scrollToBottom  bool
-	// logWarnPlus filters the Log tab to WARN+ entries only when true (I-6).
-	// Intercepted (non-level) messages are hidden while it is active.
-	logWarnPlus bool
+	// logLevelFloor filters the Log tab: 0 shows everything, 1 keeps INFO
+	// and above, logLevelRankWarn keeps WARN+ (I-6). Intercepted (non-level)
+	// messages are hidden whenever a floor is active. 'f' cycles it.
+	logLevelFloor int
+	// logExpanded switches the Log tab from the compact one-line-per-entry
+	// layout to the verbose header+content layout. 'v' toggles it.
+	logExpanded bool
 	// Accessibility panel — shown when its tab is active
 	acPanel *AccessibilityPanel
 	// gates controls visibility of gated tabs (currently the Accessibility
@@ -336,16 +341,10 @@ type InspectorModel struct {
 	visible        bool
 
 	// Cached render artifacts to reduce per-frame allocations.
-	view            tea.View
-	dirty           bool
-	runtimeTbl      table.Model
-	inputDbgTbl     table.Model
-	inputDbgColumns []table.Column // pre-allocated column slice for the input debug table
-	inputDbgColMaxW []int          // high-watermark: max rendered width ever seen per column
-	diskTbl         table.Model
-	runtimeColumns  []table.Column // pre-allocated column slice for the runtime stats table (to avoid reallocating on every View)
-	runtimeColMaxW  []int          // high-watermark: max rendered width ever seen per column
-	diskHeader      []table.Column // pre-allocated column slice for the disk stats table
+	view       tea.View
+	dirty      bool
+	diskTbl    table.Model
+	diskHeader []table.Column // pre-allocated column slice for the disk stats table
 
 	// colorProfileEnvVar is the app-specific env var name for color-profile
 	// overrides, set by the router via SetColorProfileEnvVar.
@@ -358,12 +357,23 @@ type InspectorModel struct {
 	latestValueInterval   time.Duration
 	statsRefreshInterval  time.Duration
 
-	activeTab       debugTab
-	settingsCursor  int
-	statusSummary   summaryFlags
-	linkSummary     func() string
-	pprof           pprofConfig
-	settingsMessage string
+	activeTab      debugTab
+	settingsCursor int
+	// collapsedSections maps a SectionOnly row's index to its collapsed
+	// state; body rows of a collapsed section are hidden (the tui-base SP-9
+	// pattern). Enter or a click on the header toggles it.
+	collapsedSections map[settingsRowIndex]bool
+	statusSummary     summaryFlags
+	linkSummary       func() string
+	pprof             pprofConfig
+	settingsMessage   string
+
+	// dirPicker is the modal folder picker (snap/pickers) opened from the
+	// Settings tab's "Output dir" row. While non-nil it owns keyboard input.
+	// dirPickerMouse is the picker view's mouse handler, recorded at render
+	// time so OnMouse can forward section-relative pointer events to it.
+	dirPicker      *pickers.DirPicker
+	dirPickerMouse func(tea.MouseMsg) tea.Cmd
 
 	// Per-tab scrolling and mouse-hit metadata.
 	tabScrollY     map[debugTab]int
@@ -424,7 +434,7 @@ func (m *InspectorModel) ShortHelp() []key.Binding {
 		return []key.Binding{m.keys.TabSwitch, m.keys.Scroll, m.keys.EnterRun}
 	case debugTabLog:
 		return []key.Binding{
-			m.keys.TabSwitch, m.keys.Scroll, m.keys.LevelFilter,
+			m.keys.TabSwitch, m.keys.Scroll, m.keys.LevelFilter, m.keys.LogDetail,
 			m.keys.NotifyInfo, m.keys.NotifyWarning, m.keys.NotifyError, m.keys.ExportLog,
 		}
 	case debugTabRuntime, debugTabInput, debugTabDisks, debugTabTerminal, debugTabAccessibility:
@@ -516,16 +526,12 @@ func (m *InspectorModel) activeDataTable() *table.Model {
 	if !m.tableActive[m.activeTab] {
 		return nil
 	}
-	switch m.activeTab { //nolint:exhaustive // non-table tabs fall through to nil
-	case debugTabRuntime:
-		return &m.runtimeTbl
-	case debugTabInput:
-		return &m.inputDbgTbl
-	case debugTabDisks:
+	// Disks is the only remaining table tab: Runtime and Input render via
+	// renderKVGrid (fixed-shape telemetry has no meaningful row cursor).
+	if m.activeTab == debugTabDisks {
 		return &m.diskTbl
-	default:
-		return nil
 	}
+	return nil
 }
 
 // setTableActive records whether a tab's last render used its bubbles table
@@ -587,7 +593,7 @@ func (m *InspectorModel) scrollActiveSection(lines int) {
 		if len(items) == 0 {
 			return
 		}
-		m.settingsCursor = max(0, min(len(items)-1, m.settingsCursor+lines))
+		m.moveSettingsCursor(items, lines)
 		m.ensureSettingsCursorVisible(len(items))
 		m.saveActiveTabScroll()
 		m.dirty = true
@@ -616,7 +622,20 @@ func (m *InspectorModel) ensureSettingsCursorVisible(itemCount int) {
 	if itemCount <= 0 || m.sectionViewport.Height() <= 0 {
 		return
 	}
-	row := max(0, min(itemCount-1, m.settingsCursor))
+	// Scroll offsets are rendered-LINE positions: find the cursor's place in
+	// the visible-row list (collapsed sections render nothing).
+	items := m.settingsRows()
+	vis := m.visibleSettingsRows(items)
+	if len(vis) == 0 {
+		return
+	}
+	row := 0
+	for p, idx := range vis {
+		row = p
+		if idx >= m.settingsCursor {
+			break // exact match, or the nearest visible row after a hidden one
+		}
+	}
 	top := m.sectionViewport.YOffset()
 	bottom := top + m.sectionViewport.Height() - 1
 	if row < top {
@@ -637,13 +656,132 @@ func (m *InspectorModel) activateSettingsRowByClick(localY int) tea.Cmd {
 		return nil
 	}
 	line := m.sectionViewport.YOffset() + (localY - m.sectionOriginY)
-	if line < 0 || line >= len(items) {
+	row := m.settingsRowForLine(items, line)
+	if row < 0 {
 		return nil
 	}
-	m.settingsCursor = line
+	// Headers are click targets too: Enter on one toggles its collapse.
+	m.settingsCursor = row
 	m.ensureSettingsCursorVisible(len(items))
 	m.dirty = true
 	return m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+}
+
+// settingsHeaderOf returns the index of the SectionOnly header governing row
+// i, or -1 for rows before the first header (those are always visible).
+func settingsHeaderOf(items []debugSettingRow, i int) int {
+	for h := i - 1; h >= 0; h-- {
+		if items[h].SectionOnly {
+			return h
+		}
+	}
+	return -1
+}
+
+// settingsSectionSize counts the body rows belonging to the header at h.
+func settingsSectionSize(items []debugSettingRow, h int) int {
+	n := 0
+	for i := h + 1; i < len(items) && !items[i].SectionOnly; i++ {
+		n++
+	}
+	return n
+}
+
+// settingsRowShown reports whether row i currently renders: headers always
+// do; body rows hide while their section is collapsed.
+func (m *InspectorModel) settingsRowShown(items []debugSettingRow, i int) bool {
+	if items[i].SectionOnly {
+		return true
+	}
+	h := settingsHeaderOf(items, i)
+	return h < 0 || !m.collapsedSections[settingsRowIndex(h)]
+}
+
+// visibleSettingsRows returns the indices of the rows currently rendered, in
+// order — the line↔row mapping used by clicks and cursor movement. Each
+// visible row is exactly one rendered line (help and the settings message
+// live in the pinned footer, never inside the list).
+func (m *InspectorModel) visibleSettingsRows(items []debugSettingRow) []int {
+	vis := make([]int, 0, len(items))
+	for i := range items {
+		if m.settingsRowShown(items, i) {
+			vis = append(vis, i)
+		}
+	}
+	return vis
+}
+
+// settingsRowForLine maps a rendered line inside the settings section back to
+// its settingsRows index, or -1 outside the list. (The help line used to
+// render under the selected row, shifting every click below the cursor onto
+// the wrong row — the reason "open in browser" rows didn't open on click.)
+func (m *InspectorModel) settingsRowForLine(items []debugSettingRow, line int) int {
+	vis := m.visibleSettingsRows(items)
+	if line < 0 || line >= len(vis) {
+		return -1
+	}
+	return vis[line]
+}
+
+// moveSettingsCursor steps the cursor over the visible rows only, so a
+// collapsed section is one step, not thirteen.
+func (m *InspectorModel) moveSettingsCursor(items []debugSettingRow, delta int) {
+	vis := m.visibleSettingsRows(items)
+	if len(vis) == 0 {
+		return
+	}
+	pos := len(vis) - 1
+	for p, idx := range vis {
+		if idx >= m.settingsCursor {
+			pos = p
+			break
+		}
+	}
+	pos = max(0, min(len(vis)-1, pos+delta))
+	m.settingsCursor = vis[pos]
+}
+
+// dirPickerUpdate routes one message to the open folder picker. Every message
+// is offered to it — its directory listings arrive as picker-internal
+// messages the inspector cannot name. handled reports the message stops here:
+// always for keys (the picker is modal), otherwise only when the picker
+// produced a command to run.
+func (m *InspectorModel) dirPickerUpdate(msg tea.Msg) (cmd tea.Cmd, handled bool) {
+	model, pcmd := m.dirPicker.Update(msg)
+	if p, ok := model.(*pickers.DirPicker); ok {
+		m.dirPicker = p
+	}
+	m.resolveDirPicker()
+	m.dirty = true // listings and cursor moves arrive with nil cmds
+	if _, isKey := msg.(tea.KeyMsg); isKey {
+		return pcmd, true
+	}
+	return pcmd, pcmd != nil
+}
+
+// resolveDirPicker closes the folder picker once it reports Done or Aborted,
+// committing the chosen directory to the pprof config on Done.
+func (m *InspectorModel) resolveDirPicker() {
+	p := m.dirPicker
+	if p == nil {
+		return
+	}
+	switch {
+	case p.Aborted:
+		m.dirPicker = nil
+		m.dirPickerMouse = nil
+		m.settingsMessage = "folder selection canceled"
+	case p.Done:
+		m.dirPicker = nil
+		m.dirPickerMouse = nil
+		if v := p.Value(); v != "" {
+			m.pprof.OutputDir = v
+			m.settingsMessage = "profile output dir: " + v
+		}
+	default:
+		return
+	}
+	m.dirty = true
 }
 
 func (m *InspectorModel) selectTabByX(localX int) bool {
@@ -689,35 +827,14 @@ func New() *InspectorModel {
 	// populate stats immediately so View() has data before the first tick fires
 	m.stats = collectSnapshot(m.startTime)
 	m.prevStats = m.stats
-	m.runtimeColumns = make([]table.Column, 8)
-	m.runtimeColMaxW = make([]int, 8)
-	for i := range m.runtimeColumns {
-		if i%2 == 0 {
-			m.runtimeColumns[i] = table.Column{Title: settingsColMetric, Width: -1}
-		} else {
-			m.runtimeColumns[i] = table.Column{Title: settingsColValue, Width: -1}
-		}
+	// The pprof endpoint sections start collapsed — 13 rows that are inert
+	// until the profiler server is enabled. Feature Flags stays expanded.
+	m.collapsedSections = map[settingsRowIndex]bool{
+		settingsRowBuiltinHeader: true,
+		settingsRowGotoolHeader:  true,
 	}
-
-	m.inputDbgColumns = make([]table.Column, 6)
-	for i := range m.inputDbgColumns {
-		if i%2 == 0 {
-			m.inputDbgColumns[i] = table.Column{Title: settingsColMetric, Width: -1}
-		} else {
-			m.inputDbgColumns[i] = table.Column{Title: settingsColValue, Width: -1}
-		}
-	}
-	m.inputDbgColMaxW = make([]int, 6)
-
-	m.inputDbgTbl = table.New(
-		table.WithColumns(m.inputDbgColumns),
-		table.WithRows(nil),
-		table.WithFocused(true),
-		table.WithHeight(2),
-		table.WithWidth(60),
-		table.WithKeyMap(dataTableKeyMap()),
-	)
-
+	// Runtime and Input render through renderKVGrid — only Disks still uses a
+	// bubbles table (its rows are actual data with a meaningful cursor).
 	m.diskHeader = []table.Column{
 		{Title: "Drive", Width: 5},
 		{Title: "Used", Width: 5},
@@ -727,14 +844,6 @@ func New() *InspectorModel {
 		{Title: "Error", Width: 0},
 	}
 
-	m.runtimeTbl = table.New(
-		table.WithColumns(m.runtimeColumns),
-		table.WithRows(nil),
-		table.WithFocused(true),
-		table.WithHeight(2),
-		table.WithWidth(80),
-		table.WithKeyMap(dataTableKeyMap()),
-	)
 	m.diskTbl = table.New(
 		table.WithColumns(m.diskHeader),
 		table.WithRows(nil),
@@ -787,6 +896,15 @@ func (m *InspectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Record every message the inspector sees (deduped/stacked) so the log pane
 	// reflects live traffic. Silent, high-frequency messages return early.
 	preCmd := m.LogMessageForDebugging(msg)
+
+	// A modal folder picker (Settings → Output dir) owns the keyboard while
+	// open; non-key messages continue to normal handling unless the picker
+	// produced a command for them.
+	if m.dirPicker != nil {
+		if pcmd, handled := m.dirPickerUpdate(msg); handled {
+			return m, tea.Batch(preCmd, pcmd)
+		}
+	}
 	switch msg := msg.(type) {
 	case latestValueFlushMsg:
 		m.latestValueFlushTimer = false
@@ -941,7 +1059,13 @@ func (m *InspectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(km, m.keys.ExportLog):
 				return m, tea.Batch(preCmd, m.exportLogCmd())
 			case key.Matches(km, m.keys.LevelFilter):
-				m.logWarnPlus = !m.logWarnPlus
+				// Cycle: everything → INFO+ → WARN+ → everything.
+				m.logLevelFloor = (m.logLevelFloor + 1) % (logLevelRankWarn + 1)
+				m.scrollToBottom = true
+				m.dirty = true
+				return m, preCmd
+			case key.Matches(km, m.keys.LogDetail):
+				m.logExpanded = !m.logExpanded
 				m.scrollToBottom = true
 				m.dirty = true
 				return m, preCmd
@@ -1292,10 +1416,8 @@ func (m *InspectorModel) View() tea.View {
 	availW := max(m.Width()-frameH, 20)
 	runtimeRows := m.buildRuntimeRows(c)
 	inputRows := m.buildInputRows(c)
-	m.updateRuntimeColumnWidths(runtimeRows)
-	m.updateInputColumnWidths(inputRows)
 	tblStyles := m.baseTableStyles(c)
-	runtimeSection := m.renderRuntimeSection(c, tblStyles, runtimeRows, availW)
+	runtimeSection := m.renderRuntimeSection(c, runtimeRows, availW)
 	logContent := m.renderLogContent(c)
 	rawTabsLine := m.buildTabsLine(c)
 	sectionTitle, sectionContent := m.sectionForActiveTab(
@@ -1307,23 +1429,20 @@ func (m *InspectorModel) View() tea.View {
 		logContent,
 	)
 
-	titleText := sectionTitle + " (Inspector)"
-	titleLine := lipgloss.PlaceHorizontal(
-		availW,
-		lipgloss.Center,
-		c.Styles.Title.Bold(true).Render(titleText),
-	)
-	sep := c.Styles.Title.Render(strings.Repeat("─", availW))
-	tabsLine := ansi.Truncate(rawTabsLine, availW, "…")
+	// Layout: tabs (with the right-aligned brand) on top, the section in the
+	// middle, and a pinned footer line (section title + contextual help or
+	// status message) at the bottom. The old centered "<Title> (Inspector)"
+	// line and its full-width separator spent two content lines duplicating
+	// what the highlighted tab already said.
+	tabsLine := m.tabsLineWithBrand(c, rawTabsLine, availW)
 
-	topH := lipgloss.Height(titleLine) + lipgloss.Height(tabsLine) + lipgloss.Height(sep)
-	m.sectionOriginX = 0
-	// tabsOriginY: the inner content layout is titleLine → sep → tabsLine, so
-	// tabs start after both title AND separator lines.
-	m.tabsOriginY = lipgloss.Height(titleLine) + lipgloss.Height(sep)
+	m.sectionOriginX = debugBorderPaddingX
+	m.tabsOriginY = 0
 	m.tabsHeight = lipgloss.Height(tabsLine)
+	topH := m.tabsHeight
 	m.sectionOriginY = topH
-	m.sectionHeight = max(1, m.Height()-topH-frameV)
+	const footerH = 1
+	m.sectionHeight = max(1, m.Height()-topH-footerH-frameV)
 	m.logViewport.SetWidth(max(availW, 1))
 	m.logViewport.SetHeight(m.sectionHeight)
 	m.logViewport.SetContent(logContent)
@@ -1346,9 +1465,39 @@ func (m *InspectorModel) View() tea.View {
 		sectionContent = m.sectionViewport.View()
 	}
 
+	// An open folder picker replaces the settings section wholesale (it is
+	// modal): it manages its own scrolling, so it bypasses the viewport. Its
+	// view's OnMouse is recorded for the pointer routing below.
+	if m.activeTab == debugTabSettings && m.dirPicker != nil {
+		m.dirPicker.Width, m.dirPicker.Height = availW, m.sectionHeight
+		pv := m.dirPicker.View()
+		m.dirPickerMouse = pv.OnMouse
+		sectionContent = lipgloss.NewStyle().
+			Width(availW).Height(m.sectionHeight).
+			MaxHeight(m.sectionHeight).Render(pv.Content)
+	} else {
+		m.dirPickerMouse = nil
+	}
+
 	m.view.BackgroundColor = c.Styles.TextOnBg.GetBackground()
 	m.view.ForegroundColor = c.Styles.TextOnBg.GetForeground()
 	m.view.OnMouse = func(mm tea.MouseMsg) tea.Cmd {
+		// While the folder picker is open it owns every pointer event in the
+		// section area (clicks, wheel navigation, drag, hover), translated to
+		// picker-local coordinates. Tab-bar clicks stay with the inspector.
+		if m.dirPicker != nil && m.dirPickerMouse != nil {
+			me := mm.Mouse()
+			if rel, ok := mm.(tea.MouseReleaseMsg); ok && rel.Mouse().Button == tea.MouseLeft &&
+				me.Y >= m.tabsOriginY && me.Y < m.tabsOriginY+m.tabsHeight {
+				m.selectTabByX(me.X)
+				return func() tea.Msg { return mm }
+			}
+			if me.Y >= m.sectionOriginY {
+				m.dirty = true
+				return m.dirPickerMouse(shiftMouseBy(mm, -m.sectionOriginX, -m.sectionOriginY))
+			}
+			return nil
+		}
 		if wheel, ok := mm.(tea.MouseWheelMsg); ok {
 			m.handleWheel(wheel.Mouse())
 			return nil
@@ -1367,10 +1516,9 @@ func (m *InspectorModel) View() tea.View {
 	}
 	inner := lipgloss.JoinVertical(
 		lipgloss.Left,
-		titleLine,
-		sep,
 		tabsLine,
 		sectionContent,
+		m.buildFooterLine(c, sectionTitle, availW),
 	)
 
 	m.view.SetContent(borderStyle.Render(inner))
@@ -1619,13 +1767,25 @@ func (m *InspectorModel) renderSettingsSection(c *styles.AppStyle) string {
 	spaceStyle := lipgloss.NewStyle().Background(c.SelectionBg)
 
 	// Category headers use the same style as the Terminal tab's sections (and
-	// the settings page's category headers).
+	// the settings page's category headers). They are cursor stops: Enter or
+	// a click toggles the section's collapse.
 	sectionHeader := c.Styles.Subtitle.Bold(true)
+	selectedHeader := sectionHeader.Foreground(c.SelectionFg).Background(c.SelectionBg)
 
 	var out []string
-	for i, row := range items {
+	for _, i := range m.visibleSettingsRows(items) {
+		row := items[i]
 		if row.SectionOnly {
-			out = append(out, sectionHeader.Render(row.Field))
+			marker := "▾ "
+			if m.collapsedSections[settingsRowIndex(i)] {
+				marker = "▸ "
+			}
+			label := fmt.Sprintf("%s%s (%d)", marker, row.Field, settingsSectionSize(items, i))
+			hs := sectionHeader
+			if i == m.settingsCursor {
+				hs = selectedHeader
+			}
+			out = append(out, hs.Render(ansi.Truncate(label, availW, "…")))
 			continue
 		}
 		field := ansi.Truncate(row.Field, fieldW, "…")
@@ -1638,16 +1798,14 @@ func (m *InspectorModel) renderSettingsSection(c *styles.AppStyle) string {
 			line := indicatorStyle.Render(prefix) + selectedField.Render(field) +
 				spaceStyle.Render("   ") + selectedValue.Render(value)
 			out = append(out, selectedRow.Render(line))
-			if row.Help != "" {
-				out = append(out, c.Styles.Dim.Render("   "+row.Help))
-			}
 			continue
 		}
 		out = append(out, "  "+normalField.Render(field)+"   "+normalValue.Render(value))
 	}
-	if m.settingsMessage != "" {
-		out = append(out, "", c.Styles.Subtitle.Render(m.settingsMessage))
-	}
+	// The selected row's help and the transient settings message render in
+	// the pinned footer (buildFooterLine), not inside the list: the list
+	// stays a stable one-line-per-row surface (click mapping needs no
+	// layout arithmetic) and the message can never scroll off-screen.
 
 	return lipgloss.JoinVertical(lipgloss.Left, out...)
 }
@@ -1741,7 +1899,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 		{
 			Field: "Output dir",
 			Value: m.pprof.OutputDir,
-			Help:  "Heap/CPU snapshot files are written here. Analyze with: go tool pprof <file>",
+			Help:  "Heap/CPU snapshot files are written here. Enter opens a folder picker (Space selects the highlighted folder, Ctrl+S the browsed one).",
 		},
 		// 13-14: capture actions (no server required)
 		{
@@ -1757,7 +1915,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 			Help:       "Records CPU samples for the configured duration. Blocks the UI during capture. Analyze with: go tool pprof <file>",
 		},
 		// 15: section header
-		{Field: "── Browser viewer (profiler HTTP must be enabled above) ──", SectionOnly: true},
+		{Field: "Browser viewer (needs the profiler HTTP server)", SectionOnly: true},
 		// 16-25: built-in browser endpoints (no external dependencies)
 		{
 			Field:      "Profile index page",
@@ -1821,7 +1979,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 		},
 		// 26: section header
 		{
-			Field:       "── go tool pprof -http (Go in PATH required; graph view needs Graphviz 'dot') ──",
+			Field:       "go tool pprof -http (Go in PATH; graph view needs Graphviz 'dot')",
 			SectionOnly: true,
 		},
 		// 27-29: go tool pprof -http (needs Go toolchain; graph view needs Graphviz)
@@ -1859,7 +2017,7 @@ func (m *InspectorModel) settingsRows() []debugSettingRow {
 			return rows
 		}
 		rows = append(rows, debugSettingRow{
-			Field:       "── Feature Flags (developer) ──",
+			Field:       "Feature Flags (developer)",
 			SectionOnly: true,
 		})
 		for _, def := range defs {
@@ -1884,15 +2042,11 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 	}
 	switch km.Code {
 	case tea.KeyUp:
-		if m.settingsCursor > 0 {
-			m.settingsCursor--
-		}
+		m.moveSettingsCursor(items, -1)
 		m.dirty = true
 		return nil
 	case tea.KeyDown:
-		if m.settingsCursor < len(items)-1 {
-			m.settingsCursor++
-		}
+		m.moveSettingsCursor(items, 1)
 		m.dirty = true
 		return nil
 	}
@@ -1903,8 +2057,15 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
+	// Enter on a section header toggles its collapse (▸/▾).
+	if m.settingsCursor < len(items) && items[m.settingsCursor].SectionOnly {
+		h := settingsRowIndex(m.settingsCursor)
+		m.collapsedSections[h] = !m.collapsedSections[h]
+		m.dirty = true
+		return nil
+	}
+
 	base := strings.TrimRight(m.pprof.ServerURL, "/")
-	secs := strconv.Itoa(max(1, m.pprof.CPUCaptureSecs))
 
 	requiresServer := func() bool {
 		if m.pprof.ServerURL != "" {
@@ -1913,6 +2074,16 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 		m.settingsMessage = "pprof server is not running — enable 'Enable profiler HTTP server' first"
 		m.dirty = true
 		return false
+	}
+
+	// The "Browser viewer" rows all share one shape (server check → open a
+	// pprof endpoint); a data-driven lookup keeps them out of the switch.
+	if path, ok := m.pprofEndpointPath(settingsRowIndex(m.settingsCursor)); ok {
+		if !requiresServer() {
+			return nil
+		}
+		m.dirty = true
+		return openBrowserCmd(base + path)
 	}
 
 	switch settingsRowIndex(m.settingsCursor) {
@@ -1969,7 +2140,7 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 		}
 	case settingsRowCPUSecs:
 		m.pprof.CPUCaptureSecs = max(1, m.pprof.CPUCaptureSecs+1)
-	// settingsRowOutputDir: read-only display, no action
+	// settingsRowOutputDir: Enter opens the snap/pickers folder picker
 	// --- capture actions ---
 	case settingsRowWriteHeap:
 		m.dirty = true
@@ -1978,56 +2149,7 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 		m.dirty = true
 		return m.captureCPUProfileCmd()
 	// settingsRowBuiltinHeader: section header — not interactive
-	case settingsRowPprofIndex:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/")
-		}
-	case settingsRowHeapDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/heap?debug=1")
-		}
-	case settingsRowHeapDebug2:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/heap?debug=2")
-		}
-	case settingsRowGoroutineDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/goroutine?debug=1")
-		}
-	case settingsRowGoroutineDebug2:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/goroutine?debug=2")
-		}
-	case settingsRowAllocsDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/allocs?debug=1")
-		}
-	case settingsRowBlockDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/block?debug=1")
-		}
-	case settingsRowMutexDebug1:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/mutex?debug=1")
-		}
-	case settingsRowCPUStream:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/profile?seconds=" + secs)
-		}
-	case settingsRowTraceStream:
-		if requiresServer() {
-			m.dirty = true
-			return openBrowserCmd(base + "/trace?seconds=5")
-		}
+	// (browser-endpoint rows are handled above via pprofEndpointPath)
 	// settingsRowGotoolHeader: section header — not interactive
 	case settingsRowGotoolLatest:
 		m.dirty = true
@@ -2038,11 +2160,30 @@ func (m *InspectorModel) handleSettingsKey(km tea.KeyPressMsg) tea.Cmd {
 	case settingsRowGotoolLiveCPU:
 		m.dirty = true
 		return m.openGoToolPprofLiveCPUCmd()
-	case settingsRowOutputDir,
-		settingsRowBuiltinHeader,
+	case settingsRowOutputDir:
+		// Open snap's folder picker over the section; resolveDirPicker
+		// commits the choice back into pprof.OutputDir.
+		p := pickers.NewDirPicker(m.pprof.OutputDir)
+		p.Styles = styles.PickerStyles(m.Colors())
+		m.dirPicker = p
+		m.dirty = true
+		return p.Init()
+	case settingsRowBuiltinHeader,
 		settingsRowGotoolHeader,
 		settingsRowServerState,
-		settingsRowFeatureFlagsHeader:
+		settingsRowFeatureFlagsHeader,
+		// The browser-endpoint rows are resolved by pprofEndpointPath before
+		// this switch and cannot reach here; listed to satisfy `exhaustive`.
+		settingsRowPprofIndex,
+		settingsRowHeapDebug1,
+		settingsRowHeapDebug2,
+		settingsRowGoroutineDebug1,
+		settingsRowGoroutineDebug2,
+		settingsRowAllocsDebug1,
+		settingsRowBlockDebug1,
+		settingsRowMutexDebug1,
+		settingsRowCPUStream,
+		settingsRowTraceStream:
 		// read-only display rows and section headers — no interactive action
 	default:
 		// Rows past the fixed set are the dynamic Feature Flags toggles (one
@@ -2297,6 +2438,53 @@ func (m *InspectorModel) openGoToolPprofLiveCPUCmd() tea.Cmd {
 	}
 }
 
+// pprofEndpointPath maps a "Browser viewer" settings row to the pprof URL
+// path it opens (relative to the running server); ok is false for every row
+// that is not a browser endpoint. Data-driven so handleSettingsKey stays
+// under the cyclomatic ceiling as endpoints accrue.
+func (m *InspectorModel) pprofEndpointPath(row settingsRowIndex) (path string, ok bool) {
+	secs := strconv.Itoa(max(1, m.pprof.CPUCaptureSecs))
+	paths := map[settingsRowIndex]string{
+		settingsRowPprofIndex:      "/",
+		settingsRowHeapDebug1:      "/heap?debug=1",
+		settingsRowHeapDebug2:      "/heap?debug=2",
+		settingsRowGoroutineDebug1: "/goroutine?debug=1",
+		settingsRowGoroutineDebug2: "/goroutine?debug=2",
+		settingsRowAllocsDebug1:    "/allocs?debug=1",
+		settingsRowBlockDebug1:     "/block?debug=1",
+		settingsRowMutexDebug1:     "/mutex?debug=1",
+		settingsRowCPUStream:       "/profile?seconds=" + secs,
+		settingsRowTraceStream:     "/trace?seconds=5",
+	}
+	path, ok = paths[row]
+	return path, ok
+}
+
+// shiftMouseBy translates a pointer event so a child rendered at an offset
+// (the folder picker in the section area) sees local coordinates — the same
+// normalization the tab hit ranges bake in via debugBorderPaddingX.
+func shiftMouseBy(mm tea.MouseMsg, dx, dy int) tea.MouseMsg {
+	switch e := mm.(type) {
+	case tea.MouseClickMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	case tea.MouseReleaseMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	case tea.MouseWheelMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	case tea.MouseMotionMsg:
+		e.X += dx
+		e.Y += dy
+		return e
+	}
+	return mm
+}
+
 func openBrowserCmd(url string) tea.Cmd {
 	return func() tea.Msg {
 		var cmd *exec.Cmd
@@ -2389,51 +2577,6 @@ func getEnvOr(name, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-// renderRuntimeFlat renders all metric+value pairs from the runtime profiling
-// table as a compact 2-column key→value list. Used when the terminal is too
-// narrow to fit all columns side-by-side without clipping.
-func renderRuntimeFlat(rows []table.Row, c *styles.AppStyle, width int) string {
-	// Flatten every (metric, value) pair from all rows.
-	type pair struct{ k, v string }
-	var pairs []pair
-	for _, row := range rows {
-		for i := 0; i+1 < len(row); i += 2 {
-			if row[i] == "" {
-				continue
-			}
-			pairs = append(pairs, pair{k: row[i], v: row[i+1]})
-		}
-	}
-
-	// Key column width: widest metric name, capped at 1/3 of available width.
-	maxK := 0
-	for _, p := range pairs {
-		if w := lipgloss.Width(p.k); w > maxK {
-			maxK = w
-		}
-	}
-	keyW := min(maxK, width/3)
-	valW := max(width-keyW-2, 4) // 2 for the " " separator + left margin
-
-	keyStyle := c.Styles.Item.Width(keyW)
-	sep := c.Styles.RealHeader.Render(strings.Repeat("─", min(width, 60)))
-
-	// Group every 4 pairs with a thin separator line (mirrors original row grouping).
-	var sb strings.Builder
-	for i, p := range pairs {
-		if i > 0 && i%4 == 0 {
-			sb.WriteString(sep)
-			sb.WriteByte('\n')
-		}
-		val := lipgloss.NewStyle().MaxWidth(valW).Render(p.v)
-		sb.WriteString(keyStyle.Render(p.k))
-		sb.WriteByte(' ')
-		sb.WriteString(val)
-		sb.WriteByte('\n')
-	}
-	return strings.TrimRight(sb.String(), "\n")
 }
 
 var _ styles.ColorAware = (*InspectorModel)(nil)

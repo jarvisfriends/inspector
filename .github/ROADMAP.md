@@ -12,6 +12,21 @@ and corrections are welcome via an issue or PR.
   format) producing checksummed, signed artifacts on every tag.
 - **OpenSSF Best Practices** passing badge, then silver.
 
+## Layout review (2026-08-22) — shipped
+
+All six items from the layout pass landed the same day: (1) the pinned
+footer line — section title left; settings status message or the selected
+row's help right — replacing the in-list help line and the scroll-away
+message; (2) the tab bar carries the right-aligned "Inspector" brand and the
+old centered title + separator rows are content again; (3) Runtime and Input
+render through `renderKVGrid` (responsive 1–3 column-pair key-value layout)
+instead of cursor tables, with Disks keeping the only real table; (4)
+settings categories collapse behind `▸ Title (n)` headers (pprof sections
+default-collapsed, Enter/click toggles, cursor and clicks walk visible rows
+only); (5) the log renders one line per entry by default with 'v' for the
+verbose layout and 'f' cycling everything → INFO+ → WARN+; (6) pointer
+events forwarded to children are normalized by the border padding on X.
+
 ## Next
 
 - Broaden the runtime panels (goroutine/heap deltas over time, alloc-rate

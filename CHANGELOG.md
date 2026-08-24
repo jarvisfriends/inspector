@@ -9,6 +9,38 @@ on the [GitHub releases page](https://github.com/jarvisfriends/inspector/release
 
 ## [Unreleased]
 
+### Added
+
+- The Settings tab's "Output dir" row is now editable: Enter (or a click)
+  opens snap's folder picker as a modal over the section — arrow/wheel
+  navigation, Space selects the highlighted folder, Ctrl+S the browsed one,
+  Esc cancels.
+
+### Changed
+
+- Layout overhaul (all six items from the 2026-08-22 review): a pinned
+  footer line carries the section title plus the settings status message or
+  the selected row's help (nothing scrolls away, and the settings list is
+  exactly one line per row); the tab bar carries the right-aligned brand and
+  the old centered title + separator rows became content; Runtime and Input
+  are responsive key-value grids instead of cursor tables (Disks keeps the
+  only real table); settings categories collapse behind `▸ Title (n)`
+  headers with the pprof sections collapsed by default; the log is one line
+  per entry by default with 'v' for the verbose layout and 'f' cycling the
+  level filter everything → INFO+ → WARN+.
+
+### Fixed
+
+- Standalone runs (`inspector` binary) never enabled mouse reporting, so tab
+  clicks, wheel navigation, and settings-row clicks only worked inside a host
+  app. The root program now runs cell-motion mouse mode and applies the same
+  border-offset translation the tui-base host does.
+- Settings rows below the selected row activated the wrong row when clicked:
+  the selected row's help line shifts every following row down one line, but
+  the click hit-test assumed a 1:1 line↔row layout. Clicking "open in
+  browser" rows therefore hit the row above (often a no-op). The hit-test now
+  maps rendered lines through the real layout.
+
 ## [0.0.4]
 
 ### Changed

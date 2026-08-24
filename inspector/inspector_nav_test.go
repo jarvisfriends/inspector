@@ -161,14 +161,10 @@ func TestHorizontalWheelSwitchesInspectorTabs(t *testing.T) {
 		t.Fatalf("shift+wheel-up: activeTab = %v; want Runtime", m.activeTab)
 	}
 
-	// Plain vertical wheel on a table tab moves the row cursor, not the tab.
-	before := m.runtimeTbl.Cursor()
+	// A plain vertical wheel scrolls the section — it must never switch tabs.
 	wheel(tea.MouseWheelDown, 0)
 	if m.activeTab != debugTabRuntime {
 		t.Fatalf("plain wheel-down must not switch tabs; activeTab = %v", m.activeTab)
-	}
-	if got := m.runtimeTbl.Cursor(); got != before+1 {
-		t.Fatalf("plain wheel-down: table cursor = %d; want %d", got, before+1)
 	}
 }
 

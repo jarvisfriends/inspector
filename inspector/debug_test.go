@@ -91,10 +91,26 @@ func TestLogLevelFilterWarnPlus(t *testing.T) {
 		}
 	}
 
-	// Pressing 'f' enables the WARN+ filter.
+	// 'f' cycles: everything → INFO+ → WARN+ → everything.
 	_, _ = m.Update(tea.KeyPressMsg{Text: "f"})
-	if !m.logWarnPlus {
-		t.Fatal("expected logWarnPlus=true after pressing 'f'")
+	if m.logLevelFloor != 1 {
+		t.Fatalf("logLevelFloor = %d after first 'f'; want 1 (INFO+)", m.logLevelFloor)
+	}
+	infoPlus := m.renderLogContent(c)
+	for _, want := range []string{testLogMsgInfo, testLogMsgWarn, testLogMsgErr} {
+		if !strings.Contains(infoPlus, want) {
+			t.Errorf("INFO+ log should keep %q", want)
+		}
+	}
+	for _, gone := range []string{testLogMsgDbg, testLogMsgIntercepted} {
+		if strings.Contains(infoPlus, gone) {
+			t.Errorf("INFO+ log should drop %q", gone)
+		}
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Text: "f"})
+	if m.logLevelFloor != logLevelRankWarn {
+		t.Fatalf("logLevelFloor = %d after second 'f'; want WARN+", m.logLevelFloor)
 	}
 	filtered := m.renderLogContent(c)
 	for _, want := range []string{testLogMsgWarn, testLogMsgErr} {
@@ -108,10 +124,45 @@ func TestLogLevelFilterWarnPlus(t *testing.T) {
 		}
 	}
 
-	// Pressing 'f' again disables it.
+	// A third press wraps back to everything.
 	_, _ = m.Update(tea.KeyPressMsg{Text: "f"})
-	if m.logWarnPlus {
-		t.Fatal("expected logWarnPlus=false after second 'f'")
+	if m.logLevelFloor != 0 {
+		t.Fatalf("logLevelFloor = %d after third 'f'; want 0 (everything)", m.logLevelFloor)
+	}
+}
+
+// TestLogCompactAndExpandedLayouts: entries render one line each by default;
+// 'v' switches to the verbose header+content layout (and back).
+func TestLogCompactAndExpandedLayouts(t *testing.T) {
+	t.Parallel()
+	m := New()
+	m.SetColors(styles.Active())
+	m.Logs = []MsgLog{
+		{Timestamp: time.Now(), Type: "INFO", Content: "line one\nline two", Count: 3},
+		{Timestamp: time.Now(), Type: "WARN", Content: "warned", Count: 1},
+	}
+	c := m.Colors()
+
+	compact := m.renderLogContent(c)
+	if got := lipgloss.Height(compact); got != 2 {
+		t.Fatalf("compact log = %d lines; want 2 (one per entry):\n%s", got, compact)
+	}
+	if !strings.Contains(compact, "×3") {
+		t.Errorf("compact log missing the ×3 repeat badge:\n%s", compact)
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Text: "v"})
+	if !m.logExpanded {
+		t.Fatal("expected logExpanded=true after 'v'")
+	}
+	expanded := m.renderLogContent(c)
+	if lipgloss.Height(expanded) <= 2 {
+		t.Fatalf("expanded log should span more lines than compact:\n%s", expanded)
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Text: "v"})
+	if m.logExpanded {
+		t.Fatal("expected logExpanded=false after second 'v'")
 	}
 }
 
@@ -242,71 +293,54 @@ func TestInspectorWheelScrollClampsAtBounds(t *testing.T) {
 	}
 }
 
-// TestRuntimeColumnWidthHighWatermark verifies that once a wide value has been
-// rendered into a column, that column never shrinks on subsequent renders even
-// when all current values for it are narrower.
-//
-// Column 7 receives: PID, TermSize, StackInUse, BinSize, HeapObjects, OffX/Y.
-// By zero-ing the stable sources and making HeapObjects transiently huge we can
-// guarantee the wide render owns the max, then drop it and assert no shrink.
-func TestRuntimeColumnWidthHighWatermark(t *testing.T) {
+// TestRuntimeGridRendersAllMetrics: the Runtime tab's key-value grid carries
+// every metric group and never renders a line wider than the section.
+func TestRuntimeGridRendersAllMetrics(t *testing.T) {
 	t.Parallel()
 
 	m := New()
-	// Wide terminal to stay in table mode, not flat-list mode.
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 300, Height: 40})
-
-	// Zero out the stable contributors to column 7 so HeapObjects is the sole
-	// wide value. "300x40" (TermSize) = 6 chars; PID ≤ 7 chars on all major OS.
-	m.stats.StackInUseBytes = 0   // "0 B" = 3 chars
-	m.stats.Launch.BinarySize = 0 // "0 B" = 3 chars
-	// Use a HeapObjects value whose formatted string (English locale with commas)
-	// is wider than any stable column-7 value: "999,999,999,999" = 15 chars.
-	m.stats.HeapObjects = 999_999_999_999
-
 	// Fix the timestamps so elapsed = 1 s (avoids / 0 fallback noise).
 	base := time.Now()
 	m.prevStats.CapturedAt = base.Add(-time.Second)
 	m.stats.CapturedAt = base
 
-	m.dirty = true
-	_ = m.View()
-
-	wideW7 := m.runtimeColumns[7].Width
-	if wideW7 <= 6 { // must be > TermSize width ("300x40" = 6)
-		t.Fatalf("expected column 7 width > 6 after HeapObjects=999_999_999_999; got %d", wideW7)
+	c := styles.Active()
+	out := m.renderRuntimeSection(c, m.buildRuntimeRows(c), 120)
+	for _, want := range []string{"Uptime", "Goroutines", "Heap Alloc", "GC Cycles", "Heap Objects"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runtime grid missing %q", want)
+		}
 	}
-
-	// Now shrink HeapObjects to a single digit. All stable values in column 7 are
-	// narrower than wideW7, so without the watermark the column would shrink.
-	m.stats.HeapObjects = 1
-	m.dirty = true
-	_ = m.View()
-
-	if m.runtimeColumns[7].Width < wideW7 {
-		t.Errorf("column 7 shrank: was %d after wide render, now %d after narrow render",
-			wideW7, m.runtimeColumns[7].Width)
+	for i, line := range strings.Split(out, "\n") {
+		if lipgloss.Width(line) > 120 {
+			t.Errorf("grid line %d overflows: width %d > 120", i, lipgloss.Width(line))
+		}
 	}
 }
 
-// TestRuntimeColumnWidthNeverBelowTitle verifies that column widths always meet
-// or exceed the rendered width of the column title, even on the first render.
-func TestRuntimeColumnWidthNeverBelowTitle(t *testing.T) {
+// TestKVGridReflowsToWidth: wide sections spread pairs across column pairs,
+// narrow ones stack a single pair per line — and neither overflows.
+func TestKVGridReflowsToWidth(t *testing.T) {
 	t.Parallel()
 
 	m := New()
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 300, Height: 40})
-	m.dirty = true
-	_ = m.View()
+	c := styles.Active()
+	pairs := flattenPairs(m.buildRuntimeRows(c))
+	if len(pairs) < 8 {
+		t.Fatalf("test premise: expected a rich pair set; got %d", len(pairs))
+	}
 
-	for i, col := range m.runtimeColumns {
-		title := settingsColMetric
-		if i%2 != 0 {
-			title = settingsColValue
-		}
-		minW := len(title) // plain ASCII: visual width == byte length
-		if col.Width < minW {
-			t.Errorf("column %d width %d is below title %q width %d", i, col.Width, title, minW)
+	wide := renderKVGrid(c, pairs, 220)
+	narrow := renderKVGrid(c, pairs, 24)
+	if lipgloss.Height(narrow) <= lipgloss.Height(wide) {
+		t.Errorf("narrow grid (%d lines) should stack more rows than wide (%d)",
+			lipgloss.Height(narrow), lipgloss.Height(wide))
+	}
+	for i, line := range strings.Split(narrow, "\n") {
+		if lipgloss.Width(line) > 24 {
+			t.Errorf("narrow grid line %d overflows: width %d > 24", i, lipgloss.Width(line))
 		}
 	}
 }
@@ -382,6 +416,8 @@ func TestSettingsRowsAreMouseSelectableAndActionable(t *testing.T) {
 	v := m.View()
 
 	row := 2 // "Status summary on close"
+	// One rendered line per row: help and status live in the pinned footer,
+	// so line == row and clicks always land on the row under the pointer.
 	y := m.sectionOriginY + row - m.sectionViewport.YOffset()
 	if cmd := v.OnMouse(
 		tea.MouseReleaseMsg(tea.Mouse{X: 2, Y: y, Button: tea.MouseLeft}),
@@ -397,23 +433,57 @@ func TestSettingsRowsAreMouseSelectableAndActionable(t *testing.T) {
 	}
 }
 
+// TestSettingsRowForLineIsOneToOne pins the rendered-line → row mapping: the
+// settings list is exactly one line per row (help and status render in the
+// pinned footer), so the mapping is identity inside the list and -1 outside.
+func TestSettingsRowForLineIsOneToOne(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.switchTab(debugTabSettings)
+	items := m.settingsRows()
+	if len(items) < 4 {
+		t.Fatalf("test premise: need at least 4 rows; got %d", len(items))
+	}
+
+	clear(m.collapsedSections) // expand everything: mapping is pure identity
+	m.settingsCursor = 0       // the selected row must NOT shift lines below it
+	for _, line := range []int{0, 1, 2, 3, len(items) - 1} {
+		if got := m.settingsRowForLine(items, line); got != line {
+			t.Errorf("settingsRowForLine(line=%d) = %d; want identity", line, got)
+		}
+	}
+	if got := m.settingsRowForLine(items, -1); got != -1 {
+		t.Errorf("negative line mapped to %d; want -1", got)
+	}
+	if got := m.settingsRowForLine(items, len(items)); got != -1 {
+		t.Errorf("line past the last row mapped to %d; want -1", got)
+	}
+
+	// With a section collapsed, its body rows drop out of the mapping: the
+	// line after the header maps to the NEXT header, not a hidden row.
+	m.collapsedSections[settingsRowBuiltinHeader] = true
+	if got := m.settingsRowForLine(items, int(settingsRowBuiltinHeader)+1); got != int(settingsRowGotoolHeader) {
+		t.Errorf("line after a collapsed header mapped to %d; want %d",
+			got, int(settingsRowGotoolHeader))
+	}
+}
+
 func TestPerTabScrollPreservedAcrossSwitches(t *testing.T) {
 	t.Parallel()
 
 	m := New()
-	// Wide enough that the Runtime tab uses its bubbles table (the flat
-	// fallback at narrow widths keeps viewport scrolling instead).
-	_, _ = m.Update(tea.WindowSizeMsg{Width: 160, Height: 10})
+	// Short terminal so the runtime grid is taller than the section and the
+	// viewport actually scrolls.
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	_ = m.View()
 
-	// Table tabs (Runtime) no longer scroll the section viewport: navigation
-	// keys move the table's row cursor instead.
+	// Runtime renders a key-value grid in the section viewport: KeyDown
+	// scrolls it like any non-table tab and records per-tab scroll state.
 	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if got := m.runtimeTbl.Cursor(); got != 1 {
-		t.Fatalf("expected runtime table cursor=1 after KeyDown; got %d", got)
-	}
-	if got := m.tabScrollY[debugTabRuntime]; got != 0 {
-		t.Fatalf("runtime KeyDown must move the table cursor, not the viewport; offset=%d", got)
+	if got := m.tabScrollY[debugTabRuntime]; got <= 0 {
+		t.Fatalf("expected the runtime grid to scroll with KeyDown; offset=%d", got)
 	}
 
 	// Viewport tabs (Terminal) keep per-tab scroll state across switches.

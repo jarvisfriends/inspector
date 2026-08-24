@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/dustin/go-humanize"
 
 	"github.com/jarvisfriends/snap/styles"
@@ -171,40 +172,70 @@ func (m *InspectorModel) buildInputRows(c *styles.AppStyle) []table.Row {
 	}
 }
 
-func (m *InspectorModel) updateRuntimeColumnWidths(rows []table.Row) {
-	for i := range m.runtimeColumns {
-		m.runtimeColumns[i].Width = max(
-			lipgloss.Width(m.runtimeColumns[i].Title),
-			m.runtimeColMaxW[i],
-		)
-	}
+// kvPair is one metric/value cell in a responsive key-value grid.
+type kvPair struct{ k, v string }
+
+// flattenPairs turns the legacy (metric, value, metric, value, …) table rows
+// into a flat pair list for renderKVGrid, skipping empty metric slots.
+func flattenPairs(rows []table.Row) []kvPair {
+	var pairs []kvPair
 	for _, row := range rows {
-		for j := range row {
-			w := lipgloss.Width(row[j])
-			if w > m.runtimeColMaxW[j] {
-				m.runtimeColMaxW[j] = w
+		for i := 0; i+1 < len(row); i += 2 {
+			if row[i] == "" {
+				continue
 			}
-			m.runtimeColumns[j].Width = max(m.runtimeColumns[j].Width, w)
+			pairs = append(pairs, kvPair{k: row[i], v: row[i+1]})
 		}
 	}
+	return pairs
 }
 
-func (m *InspectorModel) updateInputColumnWidths(rows []table.Row) {
-	for i := range m.inputDbgColumns {
-		m.inputDbgColumns[i].Width = max(
-			lipgloss.Width(m.inputDbgColumns[i].Title),
-			m.inputDbgColMaxW[i],
-		)
+// renderKVGrid lays pairs out column-major in as many key/value column pairs
+// as fit the width (one to three). This replaced the Runtime/Input bubbles
+// tables: fixed-shape telemetry has no meaningful row cursor, the repeated
+// Metric/Value headers were noise, and narrow terminals needed a separate
+// flat fallback — the grid simply reflows instead.
+func renderKVGrid(c *styles.AppStyle, pairs []kvPair, width int) string {
+	if len(pairs) == 0 {
+		return ""
 	}
-	for _, row := range rows {
-		for j := range row {
-			w := lipgloss.Width(row[j])
-			if w > m.inputDbgColMaxW[j] {
-				m.inputDbgColMaxW[j] = w
+	keyW, valW := 0, 0
+	for _, p := range pairs {
+		keyW = max(keyW, lipgloss.Width(p.k))
+		valW = max(valW, lipgloss.Width(p.v))
+	}
+	keyW = min(keyW, max(width/3, 8))
+	const gutter = 3
+	colW := keyW + 1 + valW
+	// ncols*colW + (ncols-1)*gutter <= width, clamped to 1..3 columns.
+	ncols := min(3, max(1, (width+gutter)/(colW+gutter)))
+	if ncols == 1 {
+		// A single column may still be wider than the section: shrink the
+		// value budget so no line ever overflows.
+		valW = min(valW, max(width-keyW-1, 4))
+	}
+	nrows := (len(pairs) + ncols - 1) / ncols
+	keyStyle := c.Styles.Item.Width(keyW)
+	valStyle := lipgloss.NewStyle().Width(valW)
+	var sb strings.Builder
+	for r := range nrows {
+		if r > 0 {
+			sb.WriteByte('\n')
+		}
+		for col := range ncols {
+			i := col*nrows + r
+			if i >= len(pairs) {
+				break // column-major: only trailing cells can be missing
 			}
-			m.inputDbgColumns[j].Width = max(m.inputDbgColumns[j].Width, w)
+			if col > 0 {
+				sb.WriteString(strings.Repeat(" ", gutter))
+			}
+			sb.WriteString(keyStyle.Render(ansi.Truncate(pairs[i].k, keyW, "…")))
+			sb.WriteByte(' ')
+			sb.WriteString(valStyle.Render(ansi.Truncate(pairs[i].v, valW, "…")))
 		}
 	}
+	return sb.String()
 }
 
 // baseTableStyles delegates to the shared theme mapping (TC-1) so the
@@ -216,25 +247,11 @@ func (m *InspectorModel) baseTableStyles(c *styles.AppStyle) table.Styles {
 
 func (m *InspectorModel) renderRuntimeSection(
 	c *styles.AppStyle,
-	s table.Styles,
 	rows []table.Row,
 	availW int,
 ) string {
-	naturalW := 1
-	for _, col := range m.runtimeColumns {
-		naturalW += col.Width + s.Cell.GetHorizontalFrameSize()
-	}
-	if naturalW <= availW {
-		m.setTableActive(debugTabRuntime, true)
-		m.runtimeTbl.SetStyles(s)
-		m.runtimeTbl.SetColumns(m.runtimeColumns)
-		m.runtimeTbl.SetRows(rows)
-		m.runtimeTbl.SetHeight(m.tableHeight(len(rows)))
-		m.runtimeTbl.SetWidth(availW)
-		return m.runtimeTbl.View()
-	}
 	m.setTableActive(debugTabRuntime, false)
-	return renderRuntimeFlat(rows, c, availW)
+	return renderKVGrid(c, flattenPairs(rows), availW)
 }
 
 // tableHeight caps a data table at the visible section height (min 3 rows so
@@ -250,25 +267,11 @@ func (m *InspectorModel) tableHeight(rowCount int) int {
 
 func (m *InspectorModel) renderInputSection(
 	c *styles.AppStyle,
-	s table.Styles,
 	rows []table.Row,
 	availW int,
 ) string {
-	naturalW := 1
-	for _, col := range m.inputDbgColumns {
-		naturalW += col.Width + s.Cell.GetHorizontalFrameSize()
-	}
-	if naturalW <= availW {
-		m.setTableActive(debugTabInput, true)
-		m.inputDbgTbl.SetStyles(s)
-		m.inputDbgTbl.SetColumns(m.inputDbgColumns)
-		m.inputDbgTbl.SetRows(rows)
-		m.inputDbgTbl.SetHeight(m.tableHeight(len(rows)))
-		m.inputDbgTbl.SetWidth(availW)
-		return m.inputDbgTbl.View()
-	}
 	m.setTableActive(debugTabInput, false)
-	return renderRuntimeFlat(rows, c, availW)
+	return renderKVGrid(c, flattenPairs(rows), availW)
 }
 
 func (m *InspectorModel) renderDisksSection(c *styles.AppStyle, s table.Styles) string {
@@ -350,35 +353,51 @@ func logLevelRank(t string) int {
 // logLevelRankWarn is the threshold used by the WARN+ filter (I-6).
 const logLevelRankWarn = 2
 
+// logFilterTag names the active level floor for titles and placeholders
+// ("" when no floor is active).
+func (m *InspectorModel) logFilterTag() string {
+	switch m.logLevelFloor {
+	case logLevelRankWarn:
+		return "WARN+"
+	case 0:
+		return ""
+	default:
+		return "INFO+"
+	}
+}
+
 func (m *InspectorModel) renderLogContent(c *styles.AppStyle) string {
 	var b strings.Builder
 	for _, log := range m.Logs {
-		if m.logWarnPlus && logLevelRank(log.Type) < logLevelRankWarn {
+		if m.logLevelFloor > 0 && logLevelRank(log.Type) < m.logLevelFloor {
 			continue
 		}
 		timestamp := log.Timestamp.Format("15:04:05")
 		countStr := ""
 		if log.Count > 1 {
-			countStr = c.Styles.Warning.Render(fmt.Sprintf(" [%d events]", log.Count))
+			countStr = c.Styles.Warning.Render(fmt.Sprintf(" ×%d", log.Count))
 		}
 		typeStr := c.Styles.Title.Render(log.Type)
-		line := fmt.Sprintf(
-			"%s %s%s\n  %s",
-			c.Styles.Subtitle.Render(timestamp),
-			typeStr,
-			countStr,
-			c.Styles.TextOnBg.Render(log.Content),
-		)
-		b.WriteString(line)
-		b.WriteString("\n\n")
+		if m.logExpanded {
+			// Verbose ('v'): header line plus the full multi-line content.
+			fmt.Fprintf(&b, "%s %s%s\n  %s\n\n",
+				c.Styles.Subtitle.Render(timestamp), typeStr, countStr,
+				c.Styles.TextOnBg.Render(log.Content))
+			continue
+		}
+		// Compact default: one line per entry — triple the visible history.
+		content := strings.ReplaceAll(log.Content, "\n", " ")
+		fmt.Fprintf(&b, "%s %s%s %s\n",
+			c.Styles.Dim.Render(timestamp), typeStr, countStr,
+			c.Styles.TextOnBg.Render(content))
 	}
 	if b.Len() == 0 {
-		if m.logWarnPlus {
-			return "No WARN+ messages. Press 'f' to show all."
+		if tag := m.logFilterTag(); tag != "" {
+			return "No " + tag + " messages. Press 'f' to cycle the filter."
 		}
 		return "No messages intercepted yet..."
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m *InspectorModel) buildTabsLine(c *styles.AppStyle) string {
@@ -416,6 +435,52 @@ func (m *InspectorModel) buildTabsLine(c *styles.AppStyle) string {
 	return lipgloss.JoinHorizontal(lipgloss.Left, tabParts...)
 }
 
+// tabsLineWithBrand right-aligns the "Inspector" brand on the tab bar row —
+// the branding the old centered title line used to carry. The brand is
+// dropped before any tab is: when the tabs already fill the row, the row is
+// just the (truncated) tabs.
+func (m *InspectorModel) tabsLineWithBrand(c *styles.AppStyle, raw string, availW int) string {
+	line := ansi.Truncate(raw, availW, "…")
+	brand := c.Styles.Title.Bold(true).Render("Inspector")
+	rest := availW - lipgloss.Width(line)
+	if rest < lipgloss.Width(brand)+2 {
+		return line
+	}
+	return line + lipgloss.PlaceHorizontal(rest, lipgloss.Right, brand)
+}
+
+// buildFooterLine renders the pinned bottom line: the section title on the
+// left; on the right, the settings status message (pprof action feedback,
+// picker results) or, absent one, the selected settings row's help. Both
+// used to live inside the scrolling settings list — the message below the
+// LAST row (off-screen whenever the list was scrolled up) and the help under
+// the selected row, shifting every row beneath it.
+func (m *InspectorModel) buildFooterLine(c *styles.AppStyle, title string, availW int) string {
+	left := c.Styles.Subtitle.Bold(true).Render(title)
+	var right string
+	if m.activeTab == debugTabSettings {
+		switch items := m.settingsRows(); {
+		case m.settingsMessage != "":
+			right = c.Styles.Subtitle.Render(m.settingsMessage)
+		case len(items) > 0:
+			row := items[max(0, min(m.settingsCursor, len(items)-1))]
+			if row.Help != "" {
+				right = c.Styles.Dim.Render(row.Help)
+			}
+		}
+	}
+	if right == "" {
+		return ansi.Truncate(left, availW, "…")
+	}
+	rest := availW - lipgloss.Width(left)
+	if rest < lipgloss.Width(right)+2 {
+		// Not enough room for both: the contextual text wins — the title is
+		// also readable from the highlighted tab.
+		return ansi.Truncate(right, availW, "…")
+	}
+	return left + lipgloss.PlaceHorizontal(rest, lipgloss.Right, right)
+}
+
 func (m *InspectorModel) sectionForActiveTab(
 	c *styles.AppStyle,
 	availW int,
@@ -428,7 +493,7 @@ func (m *InspectorModel) sectionForActiveTab(
 	case debugTabRuntime:
 		return "Runtime Profiling", runtimeSection
 	case debugTabInput:
-		return "Input Debugging", m.renderInputSection(c, s, inputRows, availW)
+		return "Input Debugging", m.renderInputSection(c, inputRows, availW)
 	case debugTabDisks:
 		return "Disks", m.renderDisksSection(c, s)
 	case debugTabTerminal:
@@ -440,8 +505,8 @@ func (m *InspectorModel) sectionForActiveTab(
 		return debugTabTitleAccessibility, "(accessibility panel not available)"
 	case debugTabLog:
 		title := "Message Log"
-		if m.logWarnPlus {
-			title += " [WARN+ only]"
+		if tag := m.logFilterTag(); tag != "" {
+			title += " [" + tag + " only]"
 		}
 		return title, logContent
 	case debugTabSettings:
