@@ -113,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: actionlint
-        uses: reviewdog/action-actionlint@d290e336d5a743810aef4404f757dc862276d2ae # v1
+        uses: reviewdog/action-actionlint@3cbf14efd750961dba35fccbf00f9e14028cb1f5 # v1
 
   docs:
     name: Docs Lint and Links
