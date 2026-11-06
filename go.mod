@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/dustin/go-humanize v1.1.0
 	github.com/jarvisfriends/snap v0.2.30
-	github.com/lrstanley/bubbletint/v2 v2.0.2
+	github.com/lrstanley/bubbletint/v2 v2.0.4
 	github.com/lucasb-eyer/go-colorful v1.4.1
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
